@@ -7,11 +7,15 @@ from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProces
 
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 
+_provider: TracerProvider | None = None
+
 
 def _set_provider(*, service_name: str) -> TracerProvider:
+    global _provider
     resource = Resource.create({"service.name": service_name})
     provider = TracerProvider(resource=resource)
     trace.set_tracer_provider(provider)
+    _provider = provider
     return provider
 
 
@@ -31,3 +35,9 @@ def init_otlp_tracing(
 
     exporter = OTLPSpanExporter(endpoint=endpoint, insecure=insecure)
     provider.add_span_processor(BatchSpanProcessor(exporter))
+
+
+def force_flush_traces(timeout_millis: int = 30000) -> bool:
+    if _provider is None:
+        return True
+    return bool(_provider.force_flush(timeout_millis=timeout_millis))

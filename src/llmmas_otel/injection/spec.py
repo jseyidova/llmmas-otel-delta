@@ -28,6 +28,11 @@ class FaultSelector:
     tool_type: Optional[str] = None
     tool_call_id: Optional[str] = None
 
+    hook_index: Optional[int] = None
+    hook_type_index: Optional[int] = None
+    after_hook_index: Optional[int] = None
+    after_hook_type_index: Optional[int] = None
+
     extras: dict[str, Any] = field(default_factory=dict)
 
     @staticmethod
@@ -37,6 +42,7 @@ class FaultSelector:
             "agent_id", "step_index",
             "source_agent_id", "target_agent_id", "edge_id", "message_id", "channel",
             "tool_name", "tool_type", "tool_call_id",
+            "hook_index", "hook_type_index", "after_hook_index", "after_hook_type_index",
         }
         kwargs = {k: d.get(k) for k in known if k in d}
         extras = {k: v for k, v in d.items() if k not in known}

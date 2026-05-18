@@ -55,7 +55,7 @@ class MessageStoreConfig:
 _config: Optional[MessageStoreConfig] = None
 
 
-def enable_message_store(path: str) -> None:
+def enable_message_store(path: str, *, append: bool = False) -> None:
     """
     Enable JSONL message storage (full message bodies) for offline analysis.
     One JSON object per line. Safe default: disabled until explicitly enabled.
@@ -65,6 +65,8 @@ def enable_message_store(path: str) -> None:
     """
     global _config
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    if not append:
+        open(path, "w", encoding="utf-8").close()
     _config = MessageStoreConfig(path=path)
 
 

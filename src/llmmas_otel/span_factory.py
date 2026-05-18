@@ -4,8 +4,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Iterator, Optional, MutableMapping, Mapping
 import hashlib
+import os
 import uuid
 import time
+from threading import Lock
 from contextvars import ContextVar
 
 from opentelemetry import trace, propagate
@@ -17,6 +19,10 @@ from . import message_store
 
 def _sha256_hex(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _trace_full_payloads_enabled() -> bool:
+    return os.getenv("LLMMAS_TRACE_FULL_PAYLOADS", "").lower() in {"1", "true", "yes", "on"}
 
 
 _CURRENT_A2A_RECEIVE_DECISION: ContextVar[Optional[object]] = ContextVar(
@@ -38,6 +44,8 @@ class A2ASendContext:
     span: Span
     decision: object
     effective_body: Optional[str]
+    hook_index: int
+    hook_type_index: int
 
 
 @dataclass(frozen=True)
@@ -45,6 +53,8 @@ class ToolCallContext:
     span: Span
     decision: object
     call_id: str
+    hook_index: int
+    hook_type_index: int
 
 
 @dataclass(frozen=True)
@@ -52,6 +62,9 @@ class LLMCallContext:
     span: Span
     decision: object
     request_id: str
+    session_id: Optional[str]
+    hook_index: int
+    hook_type_index: int
 
 
 def _fault_trace_visibility_enabled() -> bool:
@@ -102,6 +115,26 @@ def _annotate_fault_on_span(span: Span, decision: object) -> None:
 class SpanFactory:
     def __init__(self, tracer_name: str = "llmmas-otel") -> None:
         self._tracer = trace.get_tracer(tracer_name)
+        self._hook_counts: dict[str, int] = {}
+        self._hook_type_counts: dict[tuple[str, str], int] = {}
+        self._hook_count_lock = Lock()
+
+    def _reset_hook_indices(self, session_id: str) -> None:
+        with self._hook_count_lock:
+            self._hook_counts.pop(session_id, None)
+            for key in list(self._hook_type_counts):
+                if key[0] == session_id:
+                    self._hook_type_counts.pop(key, None)
+
+    def _next_hook_indices(self, session_id: Optional[str], hook_type: str) -> tuple[int, int]:
+        session_key = session_id or "__global__"
+        type_key = (session_key, hook_type)
+        with self._hook_count_lock:
+            hook_index = self._hook_counts.get(session_key, 0) + 1
+            hook_type_index = self._hook_type_counts.get(type_key, 0) + 1
+            self._hook_counts[session_key] = hook_index
+            self._hook_type_counts[type_key] = hook_type_index
+        return hook_index, hook_type_index
 
     def current_a2a_receive_decision(self) -> Optional[object]:
         return _CURRENT_A2A_RECEIVE_DECISION.get()
@@ -114,6 +147,7 @@ class SpanFactory:
 
     @contextmanager
     def session(self, *, session_id: str) -> Iterator[Span]:
+        self._reset_hook_indices(session_id)
         with message_store.session_context(session_id):
             with self._tracer.start_as_current_span(semconv.SPAN_SESSION) as span:
                 span.set_attribute(semconv.ATTR_SESSION_ID, session_id)
@@ -160,6 +194,7 @@ class SpanFactory:
     ) -> Iterator[A2ASendContext]:
         seg = message_store.current_segment() or {}
         session_id = message_store.current_session_id()
+        hook_index, hook_type_index = self._next_hook_indices(session_id, "a2a_send")
 
         decision = None
         effective_body = message_body
@@ -186,6 +221,8 @@ class SpanFactory:
                 message_id=message_id,
                 channel=channel,
                 agent_id=source_agent_id,
+                hook_index=hook_index,
+                hook_type_index=hook_type_index,
             )
             decision = get_engine().decide(ctx, payload=message_body)
 
@@ -206,6 +243,8 @@ class SpanFactory:
             span.set_attribute(semconv.ATTR_TARGET_AGENT_ID, target_agent_id)
             span.set_attribute(semconv.ATTR_EDGE_ID, edge_id)
             span.set_attribute(semconv.ATTR_MESSAGE_ID, message_id)
+            span.set_attribute(semconv.ATTR_HOOK_INDEX, hook_index)
+            span.set_attribute(semconv.ATTR_HOOK_TYPE_INDEX, hook_type_index)
             if channel is not None:
                 span.set_attribute(semconv.ATTR_CHANNEL, channel)
 
@@ -247,20 +286,31 @@ class SpanFactory:
                     )
 
                 span.set_attribute(semconv.ATTR_MESSAGE_PREVIEW, preview)
+                if _trace_full_payloads_enabled():
+                    span.set_attribute(semconv.ATTR_MESSAGE_BODY, effective_body)
                 span.set_attribute(semconv.ATTR_MESSAGE_SHA256, sha)
 
                 if add_event:
+                    event_attributes = {
+                        semconv.ATTR_MESSAGE_ID: message_id,
+                        semconv.ATTR_MESSAGE_PREVIEW: preview,
+                        semconv.ATTR_MESSAGE_SHA256: sha,
+                        "llmmas.message.direction": "send",
+                    }
+                    if _trace_full_payloads_enabled():
+                        event_attributes[semconv.ATTR_MESSAGE_BODY] = effective_body
                     span.add_event(
                         "a2a.message",
-                        attributes={
-                            semconv.ATTR_MESSAGE_ID: message_id,
-                            semconv.ATTR_MESSAGE_PREVIEW: preview,
-                            semconv.ATTR_MESSAGE_SHA256: sha,
-                            "llmmas.message.direction": "send",
-                        },
+                        attributes=event_attributes,
                     )
 
-            yield A2ASendContext(span=span, decision=decision, effective_body=effective_body)
+            yield A2ASendContext(
+                span=span,
+                decision=decision,
+                effective_body=effective_body,
+                hook_index=hook_index,
+                hook_type_index=hook_type_index,
+            )
 
     @contextmanager
     def a2a_receive(
@@ -279,6 +329,7 @@ class SpanFactory:
     ) -> Iterator[Span]:
         seg = message_store.current_segment() or {}
         session_id = message_store.current_session_id()
+        hook_index, hook_type_index = self._next_hook_indices(session_id, "a2a_receive")
 
         links = None
         if link_from_carrier and carrier is not None:
@@ -311,6 +362,8 @@ class SpanFactory:
                 message_id=message_id,
                 channel=channel,
                 agent_id=target_agent_id,
+                hook_index=hook_index,
+                hook_type_index=hook_type_index,
             )
             decision = get_engine().decide(ctx, payload=message_body)
 
@@ -335,6 +388,8 @@ class SpanFactory:
                 span.set_attribute(semconv.ATTR_TARGET_AGENT_ID, target_agent_id)
                 span.set_attribute(semconv.ATTR_EDGE_ID, edge_id)
                 span.set_attribute(semconv.ATTR_MESSAGE_ID, message_id)
+                span.set_attribute(semconv.ATTR_HOOK_INDEX, hook_index)
+                span.set_attribute(semconv.ATTR_HOOK_TYPE_INDEX, hook_type_index)
                 if channel is not None:
                     span.set_attribute(semconv.ATTR_CHANNEL, channel)
 
@@ -374,17 +429,22 @@ class SpanFactory:
                         )
 
                     span.set_attribute(semconv.ATTR_MESSAGE_PREVIEW, preview)
+                    if _trace_full_payloads_enabled():
+                        span.set_attribute(semconv.ATTR_MESSAGE_BODY, effective_body)
                     span.set_attribute(semconv.ATTR_MESSAGE_SHA256, sha)
 
                     if add_event:
+                        event_attributes = {
+                            semconv.ATTR_MESSAGE_ID: message_id,
+                            semconv.ATTR_MESSAGE_PREVIEW: preview,
+                            semconv.ATTR_MESSAGE_SHA256: sha,
+                            "llmmas.message.direction": "receive",
+                        }
+                        if _trace_full_payloads_enabled():
+                            event_attributes[semconv.ATTR_MESSAGE_BODY] = effective_body
                         span.add_event(
                             "a2a.message",
-                            attributes={
-                                semconv.ATTR_MESSAGE_ID: message_id,
-                                semconv.ATTR_MESSAGE_PREVIEW: preview,
-                                semconv.ATTR_MESSAGE_SHA256: sha,
-                                "llmmas.message.direction": "receive",
-                            },
+                            attributes=event_attributes,
                         )
 
                 yield span
@@ -404,6 +464,7 @@ class SpanFactory:
     ) -> Iterator[ToolCallContext]:
         seg = message_store.current_segment() or {}
         session_id = message_store.current_session_id()
+        hook_index, hook_type_index = self._next_hook_indices(session_id, "tool_call")
 
         call_id = tool_call_id or f"toolcall-{uuid.uuid4().hex[:12]}"
 
@@ -426,6 +487,8 @@ class SpanFactory:
                 tool_name=tool_name,
                 tool_type=tool_type,
                 tool_call_id=call_id,
+                hook_index=hook_index,
+                hook_type_index=hook_type_index,
             )
             decision = get_engine().decide(ctx, payload=tool_args)
 
@@ -446,6 +509,8 @@ class SpanFactory:
                 )
                 span.set_attribute(semconv.ATTR_GEN_AI_TOOL_NAME, tool_name)
                 span.set_attribute(semconv.ATTR_GEN_AI_TOOL_CALL_ID, call_id)
+                span.set_attribute(semconv.ATTR_HOOK_INDEX, hook_index)
+                span.set_attribute(semconv.ATTR_HOOK_TYPE_INDEX, hook_type_index)
                 if tool_type is not None:
                     span.set_attribute(semconv.ATTR_GEN_AI_TOOL_TYPE, tool_type)
 
@@ -461,7 +526,13 @@ class SpanFactory:
 
                 _annotate_fault_on_span(span, decision)
 
-                yield ToolCallContext(span=span, decision=decision, call_id=call_id)
+                yield ToolCallContext(
+                    span=span,
+                    decision=decision,
+                    call_id=call_id,
+                    hook_index=hook_index,
+                    hook_type_index=hook_type_index,
+                )
         finally:
             _CURRENT_TOOL_CALL_DECISION.reset(token)
 
@@ -479,6 +550,7 @@ class SpanFactory:
     ) -> Iterator[LLMCallContext]:
         seg = message_store.current_segment() or {}
         session_id = message_store.current_session_id()
+        hook_index, hook_type_index = self._next_hook_indices(session_id, "llm_call")
 
         rid = request_id or f"llmreq-{uuid.uuid4().hex[:12]}"
 
@@ -500,6 +572,8 @@ class SpanFactory:
                 phase_order=seg.get("order"),
                 agent_id=None,
                 tool_name=None,
+                hook_index=hook_index,
+                hook_type_index=hook_type_index,
                 extras={
                     "provider": provider_name,
                     "model": model,
@@ -524,6 +598,8 @@ class SpanFactory:
                 span.set_attribute(semconv.ATTR_GEN_AI_PROVIDER_NAME, provider_name)
                 span.set_attribute(semconv.ATTR_GEN_AI_REQUEST_MODEL, model)
                 span.set_attribute(semconv.ATTR_GEN_AI_REQUEST_ID, rid)
+                span.set_attribute(semconv.ATTR_HOOK_INDEX, hook_index)
+                span.set_attribute(semconv.ATTR_HOOK_TYPE_INDEX, hook_type_index)
 
                 _annotate_fault_on_span(span, decision)
 
@@ -532,12 +608,21 @@ class SpanFactory:
                         semconv.ATTR_LLM_INPUT_PREVIEW,
                         input_text[:preview_chars],
                     )
+                    if _trace_full_payloads_enabled():
+                        span.set_attribute(semconv.ATTR_LLM_INPUT, input_text)
                     span.set_attribute(
                         semconv.ATTR_LLM_INPUT_SHA256,
                         _sha256_hex(input_text),
                     )
 
-                yield LLMCallContext(span=span, decision=decision, request_id=rid)
+                yield LLMCallContext(
+                    span=span,
+                    decision=decision,
+                    request_id=rid,
+                    session_id=session_id,
+                    hook_index=hook_index,
+                    hook_type_index=hook_type_index,
+                )
         finally:
             _CURRENT_LLM_CALL_DECISION.reset(token)
 

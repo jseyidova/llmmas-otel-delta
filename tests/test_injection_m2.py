@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from llmmas_otel import replay_store
 from llmmas_otel.injection import (
     HookContext,
     HookType,
@@ -22,6 +23,8 @@ class TestInjectionM2(unittest.TestCase):
     def tearDown(self) -> None:
         # Ensure global injection state does not leak across tests
         disable_fault_injection()
+        replay_store.disable_replay_recording()
+        replay_store.disable_prefix_replay()
 
     def test_selector_matches_basic(self) -> None:
         sel = FaultSelector.from_dict(
@@ -44,6 +47,65 @@ class TestInjectionM2(unittest.TestCase):
             phase_name="Planning",
             source_agent_id="Planner",
             target_agent_id="Coder",
+        )
+        self.assertTrue(selector_matches(sel, ctx_ok))
+        self.assertFalse(selector_matches(sel, ctx_bad))
+
+    def test_selector_matches_hook_cursor(self) -> None:
+        sel = FaultSelector.from_dict(
+            {
+                "hook_index": 12,
+                "hook_type_index": 4,
+            }
+        )
+        ctx_ok = HookContext(
+            hook_type=HookType.A2A_RECEIVE,
+            session_id="S1",
+            hook_index=12,
+            hook_type_index=4,
+        )
+        ctx_bad = HookContext(
+            hook_type=HookType.A2A_RECEIVE,
+            session_id="S1",
+            hook_index=12,
+            hook_type_index=5,
+        )
+        self.assertTrue(selector_matches(sel, ctx_ok))
+        self.assertFalse(selector_matches(sel, ctx_bad))
+
+    def test_selector_matches_after_hook_cursor(self) -> None:
+        sel = FaultSelector.from_dict(
+            {
+                "after_hook_index": 10,
+                "after_hook_type_index": 3,
+            }
+        )
+        ctx_ok = HookContext(
+            hook_type=HookType.A2A_RECEIVE,
+            session_id="S1",
+            hook_index=11,
+            hook_type_index=4,
+        )
+        ctx_bad = HookContext(
+            hook_type=HookType.A2A_RECEIVE,
+            session_id="S1",
+            hook_index=10,
+            hook_type_index=4,
+        )
+        self.assertTrue(selector_matches(sel, ctx_ok))
+        self.assertFalse(selector_matches(sel, ctx_bad))
+
+    def test_selector_matches_extras(self) -> None:
+        sel = FaultSelector.from_dict({"provider": "ollama", "model": "llama3"})
+        ctx_ok = HookContext(
+            hook_type=HookType.LLM_CALL,
+            session_id="S1",
+            extras={"provider": "ollama", "model": "llama3"},
+        )
+        ctx_bad = HookContext(
+            hook_type=HookType.LLM_CALL,
+            session_id="S1",
+            extras={"provider": "ollama", "model": "mistral"},
         )
         self.assertTrue(selector_matches(sel, ctx_ok))
         self.assertFalse(selector_matches(sel, ctx_bad))
@@ -182,6 +244,64 @@ faults:
 
             self.assertEqual(d.kind, DecisionKind.DROP)
             self.assertEqual(d.fault_id, "FGLOBAL")
+
+    def test_replay_store_replays_only_before_target_hook(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "llm-replay.jsonl"
+            replay_store.enable_replay_recording(str(p))
+            replay_store.write_llm_record(
+                session_id="S1",
+                hook_index=3,
+                hook_type_index=2,
+                provider_name="ollama",
+                model="llama3",
+                operation_name="chat.completions",
+                request_id="req-1",
+                input_text="hello",
+                response={"choices": [{"message": {"content": "recorded"}}]},
+            )
+            replay_store.disable_replay_recording()
+
+            replay_store.enable_prefix_replay(str(p), until_hook_index=4)
+            replayed = replay_store.get_llm_replay_response(
+                session_id="S1",
+                hook_index=3,
+                input_text="hello",
+            )
+            live = replay_store.get_llm_replay_response(
+                session_id="S1",
+                hook_index=4,
+                input_text="hello",
+            )
+
+            self.assertEqual(replayed["choices"][0]["message"]["content"], "recorded")
+            self.assertIsNone(live)
+
+    def test_replay_store_strictly_detects_prefix_divergence(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "llm-replay.jsonl"
+            replay_store.enable_replay_recording(str(p))
+            replay_store.write_llm_record(
+                session_id="S1",
+                hook_index=3,
+                hook_type_index=2,
+                provider_name="ollama",
+                model="llama3",
+                operation_name="chat.completions",
+                request_id="req-1",
+                input_text="hello",
+                response={"ok": True},
+            )
+            replay_store.disable_replay_recording()
+
+            replay_store.enable_prefix_replay(str(p), until_hook_index=4)
+
+            with self.assertRaises(ValueError):
+                replay_store.get_llm_replay_response(
+                    session_id="S1",
+                    hook_index=3,
+                    input_text="different",
+                )
 
 
 if __name__ == "__main__":

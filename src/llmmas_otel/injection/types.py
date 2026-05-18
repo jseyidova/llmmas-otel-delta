@@ -37,6 +37,9 @@ class HookContext:
     tool_type: Optional[str] = None
     tool_call_id: Optional[str] = None
 
+    hook_index: Optional[int] = None
+    hook_type_index: Optional[int] = None
+
     extras: dict[str, Any] = field(default_factory=dict)
 
 

@@ -12,6 +12,12 @@ from .decorators import (
 )
 
 from .message_store import enable_message_store, disable_message_store
+from .replay_store import (
+    enable_replay_recording,
+    disable_replay_recording,
+    enable_prefix_replay,
+    disable_prefix_replay,
+)
 
 from .injection.api import enable as enable_fault_injection
 from .injection.api import disable as disable_fault_injection
@@ -33,4 +39,8 @@ __all__ = [
     "enable_fault_injection",
     "disable_fault_injection",
     "fault_injection_enabled",
+    "enable_replay_recording",
+    "disable_replay_recording",
+    "enable_prefix_replay",
+    "disable_prefix_replay",
 ]

@@ -23,8 +23,14 @@ ATTR_EDGE_ID = "llmmas.edge.id"
 ATTR_MESSAGE_ID = "llmmas.message.id"
 ATTR_CHANNEL = "llmmas.channel"
 
+# Runtime hook cursor. These are useful for replaying a prior trace up to a
+# selected point and targeting the same instrumentation boundary on a new run.
+ATTR_HOOK_INDEX = "llmmas.hook.index"
+ATTR_HOOK_TYPE_INDEX = "llmmas.hook.type_index"
+
 # Content-related (safe defaults)
 ATTR_MESSAGE_PREVIEW = "llmmas.message.preview"
+ATTR_MESSAGE_BODY = "llmmas.message.body"
 ATTR_MESSAGE_SHA256 = "llmmas.message.sha256"
 
 # Fault injection
@@ -54,6 +60,8 @@ ATTR_TOOL_RESULT_SHA256 = "llmmas.tool.result.sha256"
 
 # Optional lightweight LLM payload hints
 ATTR_LLM_INPUT_PREVIEW = "llmmas.llm.input.preview"
+ATTR_LLM_INPUT = "llmmas.llm.input"
 ATTR_LLM_INPUT_SHA256 = "llmmas.llm.input.sha256"
 ATTR_LLM_OUTPUT_PREVIEW = "llmmas.llm.output.preview"
+ATTR_LLM_OUTPUT = "llmmas.llm.output"
 ATTR_LLM_OUTPUT_SHA256 = "llmmas.llm.output.sha256"

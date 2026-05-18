@@ -226,6 +226,60 @@ faults:
       max_times: 1
 ```
 
+### Target a trace point
+
+Each instrumented hook span includes a runtime cursor:
+
+- `llmmas.hook.index`: 1-based occurrence across all fault-injection hooks in the session
+- `llmmas.hook.type_index`: 1-based occurrence within the current hook type in the session
+
+You can use those values from a previous trace to inject at the same point on a new run:
+
+```yaml
+faults:
+  - id: A2A_TRUNCATE_AFTER_PREFIX
+    hook: a2a_receive
+    selector:
+      hook_index: 42
+    action:
+      type: a2a.truncate
+      params:
+        max_chars: 40
+    limits:
+      probability: 1.0
+      max_times: 1
+```
+
+For "run normally until this trace prefix has passed, then inject on the next matching hook", use `after_hook_index` or `after_hook_type_index` with your normal selector:
+
+```yaml
+faults:
+  - id: TOOL_TIMEOUT_AFTER_PREFIX
+    hook: tool_call
+    selector:
+      after_hook_index: 42
+      tool_name: pytest
+    action:
+      type: tool.timeout
+    limits:
+      probability: 1.0
+      max_times: 1
+```
+
+If you need the prefix to be exactly the same as a previous run, record full LLM responses during the clean run and replay them before the target hook on the faulty run:
+
+```python
+from llmmas_otel import enable_replay_recording, enable_prefix_replay
+
+# Clean run: save full LLM responses.
+enable_replay_recording("out/llm-replay.jsonl")
+
+# Faulty run: replay hooks before 42, then switch to live execution at 42.
+enable_prefix_replay("out/llm-replay.jsonl", until_hook_index=42)
+```
+
+Prefix replay validates each replayed LLM input hash. In strict mode, it fails if the new run diverges before the target point.
+
 ### Supported hooks
 
 - `a2a_send`
@@ -269,8 +323,12 @@ A fault can be scoped using any combination of the following selector fields:
 - `tool_name`
 - `tool_type`
 - `tool_call_id`
+- `hook_index`
+- `hook_type_index`
+- `after_hook_index`
+- `after_hook_type_index`
 
-Unspecified fields act as wildcards.
+Unspecified fields act as wildcards. Additional selector keys are matched against hook-specific extras, such as `provider`, `model`, `operation`, and `request_id` for `llm_call`.
 
 ## Message store
 
@@ -283,6 +341,8 @@ enable_message_store("out/messages.jsonl")
 # ...
 disable_message_store()
 ```
+
+If you explicitly need full payloads inside the trace backend, set `LLMMAS_TRACE_FULL_PAYLOADS=1` before running. This adds full text attributes such as `llmmas.message.body`, `llmmas.llm.input`, and `llmmas.llm.output` where available. Use this only for local/debug runs because traces may become large and can contain sensitive data.
 
 Each JSONL record contains execution context such as:
 

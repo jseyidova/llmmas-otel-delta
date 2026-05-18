@@ -8,6 +8,14 @@ def _eq_or_wildcard(expected, actual) -> bool:
     return expected is None or expected == actual
 
 
+def _after_or_wildcard(expected, actual) -> bool:
+    return expected is None or (actual is not None and actual > expected)
+
+
+def _extras_match(expected: dict, actual: dict) -> bool:
+    return all(actual.get(k) == v for k, v in expected.items())
+
+
 def selector_matches(selector: FaultSelector, ctx: HookContext) -> bool:
     """
     Return True if selector matches the runtime HookContext.
@@ -26,4 +34,9 @@ def selector_matches(selector: FaultSelector, ctx: HookContext) -> bool:
         and _eq_or_wildcard(selector.tool_name, ctx.tool_name)
         and _eq_or_wildcard(selector.tool_type, ctx.tool_type)
         and _eq_or_wildcard(selector.tool_call_id, ctx.tool_call_id)
+        and _eq_or_wildcard(selector.hook_index, ctx.hook_index)
+        and _eq_or_wildcard(selector.hook_type_index, ctx.hook_type_index)
+        and _after_or_wildcard(selector.after_hook_index, ctx.hook_index)
+        and _after_or_wildcard(selector.after_hook_type_index, ctx.hook_type_index)
+        and _extras_match(selector.extras, ctx.extras)
     )

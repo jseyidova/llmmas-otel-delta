@@ -113,6 +113,38 @@ PYTHONPATH=. OPENAI_API_KEY=ollama python ../scripts/run_programdev_dataset_otel
   --limit 3
 ```
 
+You can pass a specific fault file for a trace-point experiment:
+
+```bash
+PYTHONPATH=. OPENAI_API_KEY=ollama python ../scripts/run_programdev_dataset_otel.py \
+  --dataset ../data/programdev_sample3.json \
+  --limit 1 \
+  --faults ../faults.trace-point.yaml \
+  --fault-seed trace-point-42
+```
+
+For an exact-prefix experiment, first record a clean run:
+
+```bash
+PYTHONPATH=. OPENAI_API_KEY=ollama python ../scripts/run_programdev_dataset_otel.py \
+  --dataset ../data/programdev_sample3.json \
+  --limit 1 \
+  --no-fault-injection \
+  --record-replay out/llm-replay.jsonl \
+  --trace-full-payloads
+```
+
+Then replay all LLM responses before the target hook and inject the fault at the target hook:
+
+```bash
+PYTHONPATH=. OPENAI_API_KEY=ollama python ../scripts/run_programdev_dataset_otel.py \
+  --dataset ../data/programdev_sample3.json \
+  --limit 1 \
+  --replay-prefix out/llm-replay.jsonl \
+  --replay-until-hook-index 42 \
+  --faults ../faults.trace-point.yaml
+```
+
 > Note: Some parts of ChatDev may still read `OPENAI_API_KEY` at import time for compatibility.  
 > For Ollama, the value can be any string (we use `ollama`).
 
