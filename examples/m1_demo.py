@@ -205,7 +205,6 @@ def send_message(env: Envelope) -> None:
         message_body=env.body,
         carrier=env.headers,
         propagate_context=True,
-        apply_mutation=lambda new_body: setattr(env, "body", new_body),
     ) as ctx:
         # enforce DROP (skip deliver)
         kind = getattr(getattr(ctx.decision, "kind", None), "value", None)

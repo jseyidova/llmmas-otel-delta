@@ -66,17 +66,12 @@ def observe_a2a_send(
     propagate_context: bool = True,
     preview_chars: int = 200,
     add_event: bool = True,
-    message_body_setter_fn: Optional[Callable[..., None]] = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     def deco(fn: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(fn)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             body: Optional[str] = message_body_fn(*args, **kwargs) if message_body_fn else None
             carrier: Optional[MutableMapping[str, str]] = carrier_fn(*args, **kwargs) if carrier_fn else None
-
-            apply_mutation = None
-            if message_body_setter_fn is not None:
-                apply_mutation = lambda new_body: message_body_setter_fn(new_body, *args, **kwargs)
 
             with default_span_factory.a2a_send(
                 source_agent_id=source_agent_id,
@@ -89,7 +84,6 @@ def observe_a2a_send(
                 propagate_context=propagate_context,
                 preview_chars=preview_chars,
                 add_event=add_event,
-                apply_mutation=apply_mutation,
             ) as ctx:
                 try:
                     from .injection import DecisionKind

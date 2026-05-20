@@ -25,6 +25,15 @@ def _trace_full_payloads_enabled() -> bool:
     return os.getenv("LLMMAS_TRACE_FULL_PAYLOADS", "").lower() in {"1", "true", "yes", "on"}
 
 
+def _record_hook_timeline(**fields: object) -> None:
+    try:
+        from . import hook_timeline_store
+
+        hook_timeline_store.write_hook(**fields)  # type: ignore[arg-type]
+    except Exception:
+        pass
+
+
 _CURRENT_A2A_RECEIVE_DECISION: ContextVar[Optional[object]] = ContextVar(
     "llmmas_current_a2a_receive_decision",
     default=None,
@@ -35,6 +44,10 @@ _CURRENT_TOOL_CALL_DECISION: ContextVar[Optional[object]] = ContextVar(
 )
 _CURRENT_LLM_CALL_DECISION: ContextVar[Optional[object]] = ContextVar(
     "llmmas_current_llm_call_decision",
+    default=None,
+)
+_CURRENT_AGENT_ID: ContextVar[Optional[str]] = ContextVar(
+    "llmmas_current_agent_id",
     default=None,
 )
 
@@ -63,6 +76,7 @@ class LLMCallContext:
     decision: object
     request_id: str
     session_id: Optional[str]
+    agent_id: Optional[str]
     hook_index: int
     hook_type_index: int
 
@@ -73,6 +87,29 @@ def _fault_trace_visibility_enabled() -> bool:
         return is_fault_trace_visible()
     except Exception:
         return True
+
+
+def _annotate_a2a_trace_fault_on_span(span: Span, injection: object) -> None:
+    if injection is None or not getattr(injection, "injected", False):
+        return
+    if not _fault_trace_visibility_enabled():
+        return
+
+    from .injection import a2a_replay
+
+    fault_type = a2a_replay.active_fault_type() or "truncate_message"
+    span.set_attribute(semconv.ATTR_FAULT_INJECTED, True)
+    span.set_attribute(semconv.ATTR_FAULT_TYPE, fault_type)
+    span.set_attribute(semconv.ATTR_FAULT_SPEC_ID, "a2a_trace_fault")
+    span.set_attribute(semconv.ATTR_FAULT_DECISION, "mutate")
+    span.add_event(
+        "fault.applied",
+        attributes={
+            semconv.ATTR_FAULT_TYPE: fault_type,
+            semconv.ATTR_FAULT_SPEC_ID: "a2a_trace_fault",
+            semconv.ATTR_FAULT_DECISION: "mutate",
+        },
+    )
 
 
 def _annotate_fault_on_span(span: Span, decision: object) -> None:
@@ -145,6 +182,9 @@ class SpanFactory:
     def current_llm_call_decision(self) -> Optional[object]:
         return _CURRENT_LLM_CALL_DECISION.get()
 
+    def current_agent_id(self) -> Optional[str]:
+        return _CURRENT_AGENT_ID.get()
+
     @contextmanager
     def session(self, *, session_id: str) -> Iterator[Span]:
         self._reset_hook_indices(session_id)
@@ -171,10 +211,14 @@ class SpanFactory:
 
     @contextmanager
     def agent_step(self, *, agent_id: str, step_index: int) -> Iterator[Span]:
-        with self._tracer.start_as_current_span(semconv.SPAN_AGENT_STEP) as span:
-            span.set_attribute(semconv.ATTR_AGENT_ID, agent_id)
-            span.set_attribute(semconv.ATTR_STEP_INDEX, step_index)
-            yield span
+        token = _CURRENT_AGENT_ID.set(agent_id)
+        try:
+            with self._tracer.start_as_current_span(semconv.SPAN_AGENT_STEP) as span:
+                span.set_attribute(semconv.ATTR_AGENT_ID, agent_id)
+                span.set_attribute(semconv.ATTR_STEP_INDEX, step_index)
+                yield span
+        finally:
+            _CURRENT_AGENT_ID.reset(token)
 
     @contextmanager
     def a2a_send(
@@ -190,7 +234,7 @@ class SpanFactory:
         propagate_context: bool = True,
         preview_chars: int = 200,
         add_event: bool = True,
-        apply_mutation: Optional[callable] = None,
+        apply_message_body: Optional[callable] = None,
     ) -> Iterator[A2ASendContext]:
         seg = message_store.current_segment() or {}
         session_id = message_store.current_session_id()
@@ -199,6 +243,26 @@ class SpanFactory:
         decision = None
         effective_body = message_body
         original_sha: Optional[str] = None
+
+        from .injection import a2a_replay
+
+        if a2a_replay.is_enabled():
+            replayed = a2a_replay.apply_body(
+                session_id=session_id,
+                direction="send",
+                segment_name=seg.get("name"),
+                segment_order=seg.get("order"),
+                source_agent_id=source_agent_id,
+                target_agent_id=target_agent_id,
+                edge_id=edge_id,
+                message_id=message_id,
+                live_body=message_body,
+                apply_to_message=apply_message_body,
+            )
+            if replayed is not None:
+                effective_body = replayed
+
+        replay_inj = a2a_replay.last_injection()
 
         try:
             from .injection import HookContext, HookType, get_engine, is_enabled, DecisionKind
@@ -209,7 +273,11 @@ class SpanFactory:
             is_enabled = lambda: False
             DecisionKind = None
 
-        if is_enabled() and HookContext is not None:
+        if (
+            is_enabled()
+            and HookContext is not None
+            and not a2a_replay.is_enabled()
+        ):
             ctx = HookContext(
                 hook_type=HookType.A2A_SEND,
                 session_id=session_id,
@@ -234,8 +302,19 @@ class SpanFactory:
                     raise ValueError("Fault injection MUTATE requires message_body (string)")
                 original_sha = _sha256_hex(message_body)
                 effective_body = decision.mutated_payload
-                if apply_mutation is not None and effective_body is not None:
-                    apply_mutation(effective_body)
+
+        if effective_body is not None:
+            from . import replay_store
+
+            replay_store.validate_a2a_event(
+                hook_index=hook_index,
+                direction="send",
+                source_agent_id=source_agent_id,
+                target_agent_id=target_agent_id,
+                message_id=message_id,
+                body=effective_body,
+                skip=replay_inj is not None and replay_inj.injected,
+            )
 
         span_name = f"{semconv.A2A_OP_SEND} {edge_id}"
         with self._tracer.start_as_current_span(span_name, kind=SpanKind.PRODUCER) as span:
@@ -243,12 +322,15 @@ class SpanFactory:
             span.set_attribute(semconv.ATTR_TARGET_AGENT_ID, target_agent_id)
             span.set_attribute(semconv.ATTR_EDGE_ID, edge_id)
             span.set_attribute(semconv.ATTR_MESSAGE_ID, message_id)
+            span.set_attribute(semconv.ATTR_MESSAGE_DIRECTION, "send")
             span.set_attribute(semconv.ATTR_HOOK_INDEX, hook_index)
             span.set_attribute(semconv.ATTR_HOOK_TYPE_INDEX, hook_type_index)
             if channel is not None:
                 span.set_attribute(semconv.ATTR_CHANNEL, channel)
 
             _annotate_fault_on_span(span, decision)
+            replay_inj = a2a_replay.last_injection()
+            _annotate_a2a_trace_fault_on_span(span, replay_inj)
 
             if propagate_context and carrier is not None:
                 propagate.inject(carrier)
@@ -258,6 +340,7 @@ class SpanFactory:
                 sha = _sha256_hex(effective_body)
 
                 if message_store.is_enabled():
+                    replay_fault = replay_inj if replay_inj is not None and replay_inj.injected else None
                     message_store.write_message(
                         direction="send",
                         message_id=message_id,
@@ -267,16 +350,22 @@ class SpanFactory:
                         target_agent_id=target_agent_id,
                         edge_id=edge_id,
                         channel=channel,
-                        original_sha256=original_sha,
-                        fault_spec_id=getattr(decision, "fault_id", None)
-                        if decision is not None
-                        else None,
-                        fault_type=getattr(decision, "fault_type", None)
-                        if decision is not None
-                        else None,
-                        fault_decision=str(getattr(decision, "kind", "pass"))
-                        if decision is not None
-                        else None,
+                        hook_index=hook_index,
+                        hook_type="a2a_send",
+                        original_sha256=(
+                            _sha256_hex(replay_fault.original_body)
+                            if replay_fault is not None and replay_fault.original_body is not None
+                            else original_sha
+                        ),
+                        fault_spec_id="a2a_trace_fault" if replay_fault is not None else (
+                            getattr(decision, "fault_id", None) if decision is not None else None
+                        ),
+                        fault_type="truncate_message" if replay_fault is not None else (
+                            getattr(decision, "fault_type", None) if decision is not None else None
+                        ),
+                        fault_decision="mutate" if replay_fault is not None else (
+                            str(getattr(decision, "kind", "pass")) if decision is not None else None
+                        ),
                         dropped=(
                             getattr(decision, "kind", None).value == "drop"
                             if decision is not None
@@ -284,6 +373,24 @@ class SpanFactory:
                             else False
                         ),
                     )
+
+                _record_hook_timeline(
+                    hook_type="a2a_send",
+                    hook_index=hook_index,
+                    hook_type_index=hook_type_index,
+                    agent_id=source_agent_id,
+                    direction="send",
+                    message_id=message_id,
+                    edge_id=edge_id,
+                    source_agent_id=source_agent_id,
+                    target_agent_id=target_agent_id,
+                    channel=channel,
+                    body=effective_body if _trace_full_payloads_enabled() else preview,
+                    message_sha256=sha,
+                    fault_injected=bool(
+                        replay_inj is not None and replay_inj.injected
+                    ),
+                )
 
                 span.set_attribute(semconv.ATTR_MESSAGE_PREVIEW, preview)
                 if _trace_full_payloads_enabled():
@@ -295,7 +402,7 @@ class SpanFactory:
                         semconv.ATTR_MESSAGE_ID: message_id,
                         semconv.ATTR_MESSAGE_PREVIEW: preview,
                         semconv.ATTR_MESSAGE_SHA256: sha,
-                        "llmmas.message.direction": "send",
+                        semconv.ATTR_MESSAGE_DIRECTION: "send",
                     }
                     if _trace_full_payloads_enabled():
                         event_attributes[semconv.ATTR_MESSAGE_BODY] = effective_body
@@ -326,10 +433,13 @@ class SpanFactory:
         link_from_carrier: bool = True,
         preview_chars: int = 200,
         add_event: bool = True,
+        apply_message_body: Optional[callable] = None,
     ) -> Iterator[Span]:
         seg = message_store.current_segment() or {}
         session_id = message_store.current_session_id()
         hook_index, hook_type_index = self._next_hook_indices(session_id, "a2a_receive")
+
+        from .injection import a2a_replay
 
         links = None
         if link_from_carrier and carrier is not None:
@@ -341,6 +451,24 @@ class SpanFactory:
         decision = None
         effective_body = message_body
 
+        if a2a_replay.is_enabled():
+            replayed = a2a_replay.apply_body(
+                session_id=session_id,
+                direction="receive",
+                segment_name=seg.get("name"),
+                segment_order=seg.get("order"),
+                source_agent_id=source_agent_id,
+                target_agent_id=target_agent_id,
+                edge_id=edge_id,
+                message_id=message_id,
+                live_body=message_body,
+                apply_to_message=apply_message_body,
+            )
+            if replayed is not None:
+                effective_body = replayed
+
+        replay_inj = a2a_replay.last_injection()
+
         try:
             from .injection import HookContext, HookType, get_engine, is_enabled, DecisionKind
         except Exception:
@@ -350,7 +478,7 @@ class SpanFactory:
             is_enabled = lambda: False
             DecisionKind = None
 
-        if is_enabled() and HookContext is not None:
+        if is_enabled() and HookContext is not None and not a2a_replay.is_enabled():
             ctx = HookContext(
                 hook_type=HookType.A2A_RECEIVE,
                 session_id=session_id,
@@ -375,6 +503,19 @@ class SpanFactory:
                     raise ValueError("Fault injection MUTATE requires message_body (string)")
                 effective_body = decision.mutated_payload
 
+        if effective_body is not None:
+            from . import replay_store
+
+            replay_store.validate_a2a_event(
+                hook_index=hook_index,
+                direction="receive",
+                source_agent_id=source_agent_id,
+                target_agent_id=target_agent_id,
+                message_id=message_id,
+                body=effective_body,
+                skip=replay_inj is not None and replay_inj.injected,
+            )
+
         token = _CURRENT_A2A_RECEIVE_DECISION.set(decision)
 
         span_name = f"{semconv.A2A_OP_PROCESS} {edge_id}"
@@ -388,12 +529,15 @@ class SpanFactory:
                 span.set_attribute(semconv.ATTR_TARGET_AGENT_ID, target_agent_id)
                 span.set_attribute(semconv.ATTR_EDGE_ID, edge_id)
                 span.set_attribute(semconv.ATTR_MESSAGE_ID, message_id)
+                span.set_attribute(semconv.ATTR_MESSAGE_DIRECTION, "receive")
                 span.set_attribute(semconv.ATTR_HOOK_INDEX, hook_index)
                 span.set_attribute(semconv.ATTR_HOOK_TYPE_INDEX, hook_type_index)
                 if channel is not None:
                     span.set_attribute(semconv.ATTR_CHANNEL, channel)
 
                 _annotate_fault_on_span(span, decision)
+                replay_inj = a2a_replay.last_injection()
+                _annotate_a2a_trace_fault_on_span(span, replay_inj)
 
                 if effective_body is not None:
                     preview = effective_body[:preview_chars]
@@ -407,6 +551,7 @@ class SpanFactory:
                         except Exception:
                             dropped = False
 
+                        replay_fault = replay_inj if replay_inj is not None and replay_inj.injected else None
                         message_store.write_message(
                             direction="receive",
                             message_id=message_id,
@@ -416,17 +561,40 @@ class SpanFactory:
                             target_agent_id=target_agent_id,
                             edge_id=edge_id,
                             channel=channel,
-                            fault_spec_id=getattr(decision, "fault_id", None)
-                            if decision is not None
+                            original_sha256=_sha256_hex(replay_fault.original_body)
+                            if replay_fault is not None and replay_fault.original_body is not None
                             else None,
-                            fault_type=getattr(decision, "fault_type", None)
-                            if decision is not None
-                            else None,
-                            fault_decision=str(getattr(decision, "kind", "pass"))
-                            if decision is not None
-                            else None,
+                            fault_spec_id="a2a_trace_fault" if replay_fault is not None else (
+                                getattr(decision, "fault_id", None) if decision is not None else None
+                            ),
+                            fault_type="truncate_message" if replay_fault is not None else (
+                                getattr(decision, "fault_type", None) if decision is not None else None
+                            ),
+                            fault_decision="mutate" if replay_fault is not None else (
+                                str(getattr(decision, "kind", "pass")) if decision is not None else None
+                            ),
                             dropped=dropped,
+                            hook_index=hook_index,
+                            hook_type="a2a_receive",
                         )
+
+                    _record_hook_timeline(
+                        hook_type="a2a_receive",
+                        hook_index=hook_index,
+                        hook_type_index=hook_type_index,
+                        agent_id=target_agent_id,
+                        direction="receive",
+                        message_id=message_id,
+                        edge_id=edge_id,
+                        source_agent_id=source_agent_id,
+                        target_agent_id=target_agent_id,
+                        channel=channel,
+                        body=effective_body if _trace_full_payloads_enabled() else preview,
+                        message_sha256=sha,
+                        fault_injected=bool(
+                            replay_inj is not None and replay_inj.injected
+                        ),
+                    )
 
                     span.set_attribute(semconv.ATTR_MESSAGE_PREVIEW, preview)
                     if _trace_full_payloads_enabled():
@@ -438,7 +606,7 @@ class SpanFactory:
                             semconv.ATTR_MESSAGE_ID: message_id,
                             semconv.ATTR_MESSAGE_PREVIEW: preview,
                             semconv.ATTR_MESSAGE_SHA256: sha,
-                            "llmmas.message.direction": "receive",
+                            semconv.ATTR_MESSAGE_DIRECTION: "receive",
                         }
                         if _trace_full_payloads_enabled():
                             event_attributes[semconv.ATTR_MESSAGE_BODY] = effective_body
@@ -526,6 +694,19 @@ class SpanFactory:
 
                 _annotate_fault_on_span(span, decision)
 
+                _record_hook_timeline(
+                    hook_type="tool_call",
+                    hook_index=hook_index,
+                    hook_type_index=hook_type_index,
+                    tool_name=tool_name,
+                    tool_type=tool_type,
+                    tool_call_id=call_id,
+                    tool_args=tool_args if _trace_full_payloads_enabled() else (
+                        tool_args[:preview_chars] if tool_args else None
+                    ),
+                    tool_args_sha256=_sha256_hex(tool_args) if tool_args else None,
+                )
+
                 yield ToolCallContext(
                     span=span,
                     decision=decision,
@@ -550,6 +731,7 @@ class SpanFactory:
     ) -> Iterator[LLMCallContext]:
         seg = message_store.current_segment() or {}
         session_id = message_store.current_session_id()
+        agent_id = self.current_agent_id()
         hook_index, hook_type_index = self._next_hook_indices(session_id, "llm_call")
 
         rid = request_id or f"llmreq-{uuid.uuid4().hex[:12]}"
@@ -570,7 +752,7 @@ class SpanFactory:
                 session_id=session_id,
                 phase_name=seg.get("name"),
                 phase_order=seg.get("order"),
-                agent_id=None,
+                agent_id=agent_id,
                 tool_name=None,
                 hook_index=hook_index,
                 hook_type_index=hook_type_index,
@@ -600,6 +782,8 @@ class SpanFactory:
                 span.set_attribute(semconv.ATTR_GEN_AI_REQUEST_ID, rid)
                 span.set_attribute(semconv.ATTR_HOOK_INDEX, hook_index)
                 span.set_attribute(semconv.ATTR_HOOK_TYPE_INDEX, hook_type_index)
+                if agent_id is not None:
+                    span.set_attribute(semconv.ATTR_AGENT_ID, agent_id)
 
                 _annotate_fault_on_span(span, decision)
 
@@ -620,6 +804,7 @@ class SpanFactory:
                     decision=decision,
                     request_id=rid,
                     session_id=session_id,
+                    agent_id=agent_id,
                     hook_index=hook_index,
                     hook_type_index=hook_type_index,
                 )

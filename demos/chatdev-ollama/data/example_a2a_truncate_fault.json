@@ -1,0 +1,14 @@
+{
+  "enabled": true,
+  "fault_type": "truncate_message",
+  "selector": {
+    "segment_name": "Coding",
+    "edge_id": "Chief Technology Officer->Programmer",
+    "direction": "receive",
+    "occurrence": 0
+  },
+  "truncate": {
+    "mode": "cut_after_text",
+    "cut_after_text": "buying them, collecting rent,"
+  }
+}

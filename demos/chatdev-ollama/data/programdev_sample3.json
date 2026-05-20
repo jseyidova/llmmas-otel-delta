@@ -1,0 +1,14 @@
+[
+  {
+    "project_name": "StrandsGame",
+    "description": "Design a word-segmentation puzzle named 'Strands.' Provide multiple strands of text that the player must combine to form meaningful words or phrases. The program verifies valid strand formations and confirms completion once all strands are correctly merged. Similar to NYT Strands, offer feedback on valid merges."
+  },
+  {
+    "project_name": "ReversiOthello",
+    "description": "Develop a Reversi/Othello game where two players place discs to flip opponent pieces. Include standard 8x8 board rules, valid move highlighting, turn switching, and win detection when no valid moves remain."
+  },
+  {
+    "project_name": "FlappyBird",
+    "description": "Create a Flappy Bird style game with a bird that falls due to gravity, jumps on input, passes through gaps in pipes, and ends on collision. Track score for pipes passed and restart after game over."
+  }
+]

@@ -1,6 +1,6 @@
 from llmmas_otel import init_otlp_tracing, observe_agent_step, observe_a2a_send, observe_session
 from llmmas_otel import enable_message_store
-enable_message_store("out/messages.jsonl")
+enable_message_store("out/a2a-messages.jsonl")
 
 from llmmas_otel import segment
 

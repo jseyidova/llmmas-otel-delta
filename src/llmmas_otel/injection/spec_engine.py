@@ -102,6 +102,13 @@ class SpecFaultEngine(FaultEngine):
             meta = {"original_len": len(payload), "new_len": len(mutated), "max_chars": max_chars}
             return InjectionDecision.mutate(fault_id=spec.id, fault_type=t, mutated_payload=mutated, metadata=meta)
 
+        if t == "a2a.replace_body":
+            body = spec.action.params.get("body")
+            if not isinstance(body, str):
+                raise ValueError(f"Fault '{spec.id}': a2a.replace_body requires string params.body")
+            meta = {"original_len": len(payload) if payload is not None else 0, "new_len": len(body)}
+            return InjectionDecision.mutate(fault_id=spec.id, fault_type=t, mutated_payload=body, metadata=meta)
+
         # ---------------- TOOL faults ----------------
         if t == "tool.delay":
             ms = spec.action.params.get("delay_ms", spec.action.params.get("ms"))

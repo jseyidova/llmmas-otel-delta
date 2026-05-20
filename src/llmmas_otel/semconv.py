@@ -21,6 +21,7 @@ ATTR_SOURCE_AGENT_ID = "llmmas.source_agent.id"
 ATTR_TARGET_AGENT_ID = "llmmas.target_agent.id"
 ATTR_EDGE_ID = "llmmas.edge.id"
 ATTR_MESSAGE_ID = "llmmas.message.id"
+ATTR_MESSAGE_DIRECTION = "llmmas.message.direction"
 ATTR_CHANNEL = "llmmas.channel"
 
 # Runtime hook cursor. These are useful for replaying a prior trace up to a

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -192,6 +193,34 @@ faults:
             self.assertEqual(d.metadata.get("original_len"), len(payload))
             self.assertEqual(d.metadata.get("new_len"), 5)
 
+    def test_a2a_replace_body_mutate(self) -> None:
+        yaml_text = """
+faults:
+  - id: FREPLACE
+    hook: a2a_send
+    selector:
+      phase_name: Coding
+    action:
+      type: a2a.replace_body
+      params:
+        body: manually truncated
+    limits:
+      probability: 1.0
+      max_times: 1
+"""
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "faults.yaml"
+            p.write_text(yaml_text, encoding="utf-8")
+            specs = load_fault_specs(str(p))
+            engine = SpecFaultEngine(specs=specs, seed="0")
+
+            payload = "full original message body"
+            ctx = HookContext(hook_type=HookType.A2A_SEND, session_id="S1", phase_name="Coding")
+            d = engine.decide(ctx, payload=payload)
+
+            self.assertEqual(d.kind, DecisionKind.MUTATE)
+            self.assertEqual(d.mutated_payload, "manually truncated")
+
     def test_tool_not_installed_decision(self) -> None:
         yaml_text = """
 faults:
@@ -276,6 +305,40 @@ faults:
 
             self.assertEqual(replayed["choices"][0]["message"]["content"], "recorded")
             self.assertIsNone(live)
+
+    def test_replay_recording_includes_prefix_when_prefix_replay_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            baseline = Path(td) / "baseline.jsonl"
+            faulty = Path(td) / "faulty.jsonl"
+            replay_store.enable_replay_recording(str(baseline))
+            replay_store.write_llm_record(
+                session_id="S1",
+                hook_index=3,
+                hook_type_index=2,
+                provider_name="ollama",
+                model="llama3",
+                operation_name="chat.completions",
+                request_id="req-1",
+                input_text="hello",
+                response={"choices": [{"message": {"content": "prefix"}}]},
+            )
+            replay_store.disable_replay_recording()
+
+            replay_store.enable_replay_recording(str(faulty))
+            replay_store.enable_prefix_replay(str(baseline), until_hook_index=4)
+            replay_store.get_llm_replay_response(
+                session_id="S1",
+                hook_index=3,
+                input_text="hello",
+            )
+            replay_store.disable_prefix_replay()
+            replay_store.disable_replay_recording()
+
+            lines = faulty.read_text(encoding="utf-8").strip().splitlines()
+            self.assertEqual(len(lines), 1)
+            row = json.loads(lines[0])
+            self.assertEqual(row["hook_index"], 3)
+            self.assertEqual(row["response"]["choices"][0]["message"]["content"], "prefix")
 
     def test_replay_store_strictly_detects_prefix_divergence(self) -> None:
         with tempfile.TemporaryDirectory() as td:

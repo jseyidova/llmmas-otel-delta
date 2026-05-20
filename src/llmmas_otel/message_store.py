@@ -61,7 +61,7 @@ def enable_message_store(path: str, *, append: bool = False) -> None:
     One JSON object per line. Safe default: disabled until explicitly enabled.
 
     Example:
-      enable_message_store("out/messages.jsonl")
+      enable_message_store("out/a2a-messages.jsonl")
     """
     global _config
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -95,6 +95,8 @@ def write_message(
     fault_type: Optional[str] = None,
     fault_decision: Optional[str] = None,
     dropped: bool = False,
+    hook_index: Optional[int] = None,
+    hook_type: Optional[str] = None,
 ) -> None:
     """
     Append a message record to JSONL store, if enabled.
@@ -115,6 +117,10 @@ def write_message(
         "body": body,
         "dropped": dropped,
     }
+    if hook_index is not None:
+        record["hook_index"] = hook_index
+    if hook_type is not None:
+        record["hook_type"] = hook_type
 
     if original_sha256 is not None:
         record["original_sha256"] = original_sha256

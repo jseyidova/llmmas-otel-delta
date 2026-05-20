@@ -12,7 +12,7 @@ The package is especially useful for debugging, execution analysis, reliability 
 - **Framework-agnostic instrumentation** for existing Python MAS implementations
 - **OpenTelemetry-native traces** exportable to any OTLP-compatible backend
 - **Structured trace hierarchy** for sessions, workflow phases, agent steps, A2A communication, tool calls, and LLM calls
-- **Optional JSONL message store** for full message-body capture during offline analysis
+- **Optional JSONL A2A message store** (`a2a-messages.jsonl`) for full inter-agent bodies during offline analysis
 - **Config-driven fault injection** via YAML or JSON
 - **Optional fault trace visibility control** so injected faults can be either visible or hidden in spans/events
 - **Low-overhead defaults** with previews and hashes instead of full payload storage unless explicitly enabled
@@ -85,7 +85,7 @@ from llmmas_otel import (
 )
 
 # Optional: store full messages for offline analysis
-enable_message_store("out/messages.jsonl")
+enable_message_store("out/a2a-messages.jsonl")
 
 
 @observe_llm_call(
@@ -292,7 +292,8 @@ Prefix replay validates each replayed LLM input hash. In strict mode, it fails i
 #### Agent-to-agent faults
 - `a2a.drop`
 - `a2a.delay`
-- `a2a.truncate`
+- `a2a.truncate` (position-based: `params.max_chars` slices the recorded/trace body; does not modify the live agent message)
+- `a2a.replace_body` (paste a manually truncated body in `params.body`; trace/span only)
 
 #### Tool faults
 - `tool.delay`
@@ -330,14 +331,14 @@ A fault can be scoped using any combination of the following selector fields:
 
 Unspecified fields act as wildcards. Additional selector keys are matched against hook-specific extras, such as `provider`, `model`, `operation`, and `request_id` for `llm_call`.
 
-## Message store
+## A2A message store
 
-By default, the library records lightweight previews and hashes in spans. Full message bodies are only written if you explicitly enable the message store.
+By default, the library records lightweight previews and hashes in spans. Full A2A (agent-to-agent) message bodies are only written if you explicitly enable the message store (e.g. `out/a2a-messages.jsonl` in the ChatDev demo).
 
 ```python
 from llmmas_otel import enable_message_store, disable_message_store
 
-enable_message_store("out/messages.jsonl")
+enable_message_store("out/a2a-messages.jsonl")
 # ...
 disable_message_store()
 ```

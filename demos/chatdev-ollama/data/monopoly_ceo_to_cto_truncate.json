@@ -1,0 +1,16 @@
+{
+  "enabled": true,
+  "fault_type": "truncate_message",
+  "selector": {
+    "hook_index": 3,
+    "edge_id": "Chief Executive Officer->Chief Technology Officer",
+    "direction": "receive",
+    "occurrence": 0,
+    "source_agent_id": "Chief Executive Officer",
+    "target_agent_id": "Chief Technology Officer"
+  },
+  "truncate": {
+    "mode": "cut_after_text",
+    "cut_after_text": "buying them, collecting rent,"
+  }
+}
