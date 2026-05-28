@@ -20,6 +20,29 @@ def _sha256_hex(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def trace_full_payloads_enabled() -> bool:
+    """True when full text should be attached to spans (env: LLMMAS_TRACE_FULL_PAYLOADS)."""
+    return os.getenv("LLMMAS_TRACE_FULL_PAYLOADS", "").lower() in {"1", "true", "yes", "on"}
+
+
+def _preview_and_hash_attrs(
+    *,
+    preview_attr: str,
+    full_attr: str,
+    sha_attr: str,
+    text: str,
+    preview_chars: int,
+) -> dict[str, Any]:
+    preview = text[:preview_chars]
+    attrs: dict[str, Any] = {
+        preview_attr: preview,
+        sha_attr: _sha256_hex(text),
+    }
+    if trace_full_payloads_enabled():
+        attrs[full_attr] = text
+    return attrs
+
+
 def _coerce_attr_value(value: Any) -> Any:
     if value is None:
         return None
@@ -297,8 +320,14 @@ class SpanFactory:
             _set_attr(span, semconv.ATTR_DELEGATION_TASK_ID, task_id)
             _set_attr(span, semconv.ATTR_DELEGATION_VIA, via)
             if goal is not None:
-                span.set_attribute(semconv.ATTR_DELEGATION_GOAL_PREVIEW, goal[:preview_chars])
-                span.set_attribute(semconv.ATTR_DELEGATION_GOAL_SHA256, _sha256_hex(goal))
+                for key, value in _preview_and_hash_attrs(
+                    preview_attr=semconv.ATTR_DELEGATION_GOAL_PREVIEW,
+                    full_attr=semconv.ATTR_DELEGATION_GOAL,
+                    sha_attr=semconv.ATTR_DELEGATION_GOAL_SHA256,
+                    text=goal,
+                    preview_chars=preview_chars,
+                ).items():
+                    span.set_attribute(key, value)
             _set_metadata(span, metadata, "llmmas.delegation.meta")
             yield DelegationContext(span=span, delegation_id=did)
 
@@ -416,17 +445,23 @@ class SpanFactory:
                         ),
                     )
 
-                span.set_attribute(semconv.ATTR_MESSAGE_PREVIEW, preview)
-                span.set_attribute(semconv.ATTR_MESSAGE_SHA256, sha)
+                content_attrs = _preview_and_hash_attrs(
+                    preview_attr=semconv.ATTR_MESSAGE_PREVIEW,
+                    full_attr=semconv.ATTR_MESSAGE_BODY,
+                    sha_attr=semconv.ATTR_MESSAGE_SHA256,
+                    text=effective_body,
+                    preview_chars=preview_chars,
+                )
+                for key, value in content_attrs.items():
+                    span.set_attribute(key, value)
 
                 if add_event:
                     span.add_event(
                         "a2a.message",
                         attributes={
                             semconv.ATTR_MESSAGE_ID: message_id,
-                            semconv.ATTR_MESSAGE_PREVIEW: preview,
-                            semconv.ATTR_MESSAGE_SHA256: sha,
                             semconv.ATTR_MESSAGE_DIRECTION: "send",
+                            **content_attrs,
                             **({semconv.ATTR_MESSAGE_KIND: message_kind} if message_kind else {}),
                             **({semconv.ATTR_MESSAGE_ROUTE_VIA: route_via} if route_via else {}),
                         },
@@ -556,17 +591,23 @@ class SpanFactory:
                             dropped=dropped,
                         )
 
-                    span.set_attribute(semconv.ATTR_MESSAGE_PREVIEW, preview)
-                    span.set_attribute(semconv.ATTR_MESSAGE_SHA256, sha)
+                    content_attrs = _preview_and_hash_attrs(
+                        preview_attr=semconv.ATTR_MESSAGE_PREVIEW,
+                        full_attr=semconv.ATTR_MESSAGE_BODY,
+                        sha_attr=semconv.ATTR_MESSAGE_SHA256,
+                        text=effective_body,
+                        preview_chars=preview_chars,
+                    )
+                    for key, value in content_attrs.items():
+                        span.set_attribute(key, value)
 
                     if add_event:
                         span.add_event(
                             "a2a.message",
                             attributes={
                                 semconv.ATTR_MESSAGE_ID: message_id,
-                                semconv.ATTR_MESSAGE_PREVIEW: preview,
-                                semconv.ATTR_MESSAGE_SHA256: sha,
                                 semconv.ATTR_MESSAGE_DIRECTION: "receive",
+                                **content_attrs,
                                 **({semconv.ATTR_MESSAGE_KIND: message_kind} if message_kind else {}),
                                 **({semconv.ATTR_MESSAGE_ROUTE_VIA: route_via} if route_via else {}),
                             },
@@ -631,8 +672,14 @@ class SpanFactory:
                 _set_metadata(span, metadata, "llmmas.env_action.meta")
 
                 if record_input and input_text is not None:
-                    span.set_attribute(semconv.ATTR_ENV_ACTION_INPUT_PREVIEW, input_text[:preview_chars])
-                    span.set_attribute(semconv.ATTR_ENV_ACTION_INPUT_SHA256, _sha256_hex(input_text))
+                    for key, value in _preview_and_hash_attrs(
+                        preview_attr=semconv.ATTR_ENV_ACTION_INPUT_PREVIEW,
+                        full_attr=semconv.ATTR_ENV_ACTION_INPUT,
+                        sha_attr=semconv.ATTR_ENV_ACTION_INPUT_SHA256,
+                        text=input_text,
+                        preview_chars=preview_chars,
+                    ).items():
+                        span.set_attribute(key, value)
 
                 _annotate_fault_on_span(span, decision)
                 yield EnvironmentActionContext(span=span, decision=decision, action_id=aid)
@@ -667,8 +714,14 @@ class SpanFactory:
             if tool_type is not None:
                 span.set_attribute(semconv.ATTR_GEN_AI_TOOL_TYPE, tool_type)
             if record_args and tool_args is not None:
-                span.set_attribute(semconv.ATTR_TOOL_ARGS_PREVIEW, tool_args[:preview_chars])
-                span.set_attribute(semconv.ATTR_TOOL_ARGS_SHA256, _sha256_hex(tool_args))
+                for key, value in _preview_and_hash_attrs(
+                    preview_attr=semconv.ATTR_TOOL_ARGS_PREVIEW,
+                    full_attr=semconv.ATTR_TOOL_ARGS,
+                    sha_attr=semconv.ATTR_TOOL_ARGS_SHA256,
+                    text=tool_args,
+                    preview_chars=preview_chars,
+                ).items():
+                    span.set_attribute(key, value)
             yield ToolCallContext(
                 span=span,
                 decision=env_ctx.decision,
@@ -787,8 +840,14 @@ class SpanFactory:
                 _annotate_fault_on_span(span, decision)
 
                 if record_input and input_text is not None:
-                    span.set_attribute(semconv.ATTR_LLM_INPUT_PREVIEW, input_text[:preview_chars])
-                    span.set_attribute(semconv.ATTR_LLM_INPUT_SHA256, _sha256_hex(input_text))
+                    for key, value in _preview_and_hash_attrs(
+                        preview_attr=semconv.ATTR_LLM_INPUT_PREVIEW,
+                        full_attr=semconv.ATTR_LLM_INPUT,
+                        sha_attr=semconv.ATTR_LLM_INPUT_SHA256,
+                        text=input_text,
+                        preview_chars=preview_chars,
+                    ).items():
+                        span.set_attribute(key, value)
 
                 yield LLMCallContext(span=span, decision=decision, request_id=rid)
         finally:

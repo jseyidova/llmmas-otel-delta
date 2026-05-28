@@ -1,0 +1,6 @@
+[
+  {
+    "project_name": "CalculatorUI",
+    "description": "Build a desktop calculator app in Python using Tkinter only (no external GUI libraries). Provide a runnable entry file main.py with `if __name__ == '__main__':` that starts the app. The UI must include a visible display widget and clickable buttons for digits 0-9, '+', '-', '*', '/', '.', '=', clear, and backspace. Use button labels exactly: C for clear and ⌫ for backspace. Clicking buttons must update the display and perform calculations. Required behaviors: 2+3=5, 9-4=5, 3*4=12, 8/2=4, decimal math (1.5+2.5=4), clear resets display to empty or 0, backspace removes one character, chained operations work (2+3+4=9), and division by zero shows an error message in the display (contains 'error' or 'zero'). Code must run directly with Python 3.10+ and include all required imports (including `import tkinter as tk`) with no NameError at startup."
+  }
+]

@@ -4,7 +4,7 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any, Mapping, MutableMapping, Optional
 
-from .span_factory import default_span_factory
+from .span_factory import _preview_and_hash_attrs, default_span_factory
 
 
 def observe_session(
@@ -459,11 +459,22 @@ def observe_tool_call(
                     if tool_result is not None:
                         from . import semconv
 
-                        sha = __import__("hashlib").sha256(tool_result.encode("utf-8")).hexdigest()
-                        ctx.span.set_attribute(semconv.ATTR_TOOL_RESULT_PREVIEW, tool_result[:preview_chars])
-                        ctx.span.set_attribute(semconv.ATTR_TOOL_RESULT_SHA256, sha)
-                        ctx.span.set_attribute(semconv.ATTR_ENV_ACTION_OUTPUT_PREVIEW, tool_result[:preview_chars])
-                        ctx.span.set_attribute(semconv.ATTR_ENV_ACTION_OUTPUT_SHA256, sha)
+                        tool_attrs = _preview_and_hash_attrs(
+                            preview_attr=semconv.ATTR_TOOL_RESULT_PREVIEW,
+                            full_attr=semconv.ATTR_TOOL_RESULT,
+                            sha_attr=semconv.ATTR_TOOL_RESULT_SHA256,
+                            text=tool_result,
+                            preview_chars=preview_chars,
+                        )
+                        env_attrs = _preview_and_hash_attrs(
+                            preview_attr=semconv.ATTR_ENV_ACTION_OUTPUT_PREVIEW,
+                            full_attr=semconv.ATTR_ENV_ACTION_OUTPUT,
+                            sha_attr=semconv.ATTR_ENV_ACTION_OUTPUT_SHA256,
+                            text=tool_result,
+                            preview_chars=preview_chars,
+                        )
+                        for key, value in {**tool_attrs, **env_attrs}.items():
+                            ctx.span.set_attribute(key, value)
 
                 return result
 
@@ -634,11 +645,14 @@ def observe_llm_call(
                     if out_text is not None:
                         from . import semconv
 
-                        ctx.span.set_attribute(semconv.ATTR_LLM_OUTPUT_PREVIEW, out_text[:preview_chars])
-                        ctx.span.set_attribute(
-                            semconv.ATTR_LLM_OUTPUT_SHA256,
-                            __import__("hashlib").sha256(out_text.encode("utf-8")).hexdigest(),
-                        )
+                        for key, value in _preview_and_hash_attrs(
+                            preview_attr=semconv.ATTR_LLM_OUTPUT_PREVIEW,
+                            full_attr=semconv.ATTR_LLM_OUTPUT,
+                            sha_attr=semconv.ATTR_LLM_OUTPUT_SHA256,
+                            text=out_text,
+                            preview_chars=preview_chars,
+                        ).items():
+                            ctx.span.set_attribute(key, value)
 
                 return result
 

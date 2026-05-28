@@ -1,5 +1,6 @@
 import json
 import argparse
+import os
 from pathlib import Path
 
 from chatdev.chat_chain import ChatChain
@@ -54,7 +55,15 @@ def main():
     parser.add_argument("--limit", type=int, default=3)
     parser.add_argument("--config", type=str, default="Default")
     parser.add_argument("--org", type=str, default="ProgramDevOrg")
+    parser.add_argument(
+        "--trace-full-payloads",
+        action="store_true",
+        help="Record full message/LLM text on spans (sets LLMMAS_TRACE_FULL_PAYLOADS=1)",
+    )
     args = parser.parse_args()
+
+    if args.trace_full_payloads:
+        os.environ["LLMMAS_TRACE_FULL_PAYLOADS"] = "1"
 
     # OTel exporter -> Jaeger OTLP (you must run Jaeger container)
     init_otlp_tracing(service_name="chatdev-programdev", endpoint="http://localhost:4317", insecure=True)

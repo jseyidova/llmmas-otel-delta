@@ -54,8 +54,9 @@ ATTR_MESSAGE_ROUTE_VIA = "llmmas.message.route.via"
 ATTR_MESSAGE_DIRECTION = "llmmas.message.direction"
 ATTR_CHANNEL = "llmmas.channel"
 
-# Content-related safe defaults
+# Content-related safe defaults (preview + hash always; full body when enabled)
 ATTR_MESSAGE_PREVIEW = "llmmas.message.preview"
+ATTR_MESSAGE_BODY = "llmmas.message.body"
 ATTR_MESSAGE_SHA256 = "llmmas.message.sha256"
 
 # Delegation / subtask attributes
@@ -66,6 +67,7 @@ ATTR_DELEGATION_TASK_ID = "llmmas.delegation.task.id"
 ATTR_DELEGATION_KIND = "llmmas.delegation.kind"
 ATTR_DELEGATION_VIA = "llmmas.delegation.via"
 ATTR_DELEGATION_GOAL_PREVIEW = "llmmas.delegation.goal.preview"
+ATTR_DELEGATION_GOAL = "llmmas.delegation.goal"
 ATTR_DELEGATION_GOAL_SHA256 = "llmmas.delegation.goal.sha256"
 
 # Environment action attributes. A tool call is a subtype of environment action.
@@ -73,8 +75,10 @@ ATTR_ENV_ACTION_ID = "llmmas.env_action.id"
 ATTR_ENV_ACTION_KIND = "llmmas.env_action.kind"
 ATTR_ENV_ACTION_NAME = "llmmas.env_action.name"
 ATTR_ENV_ACTION_INPUT_PREVIEW = "llmmas.env_action.input.preview"
+ATTR_ENV_ACTION_INPUT = "llmmas.env_action.input"
 ATTR_ENV_ACTION_INPUT_SHA256 = "llmmas.env_action.input.sha256"
 ATTR_ENV_ACTION_OUTPUT_PREVIEW = "llmmas.env_action.output.preview"
+ATTR_ENV_ACTION_OUTPUT = "llmmas.env_action.output"
 ATTR_ENV_ACTION_OUTPUT_SHA256 = "llmmas.env_action.output.sha256"
 ATTR_ENV_ACTION_EXIT_CODE = "llmmas.env_action.exit_code"
 ATTR_ENV_ACTION_CHANGED_FILES = "llmmas.env_action.changed_files"
@@ -108,12 +112,16 @@ ATTR_GEN_AI_TOOL_CALL_ID = "gen_ai.tool.call.id"
 
 # Optional lightweight tool payload hints. Kept for backward compatibility.
 ATTR_TOOL_ARGS_PREVIEW = "llmmas.tool.args.preview"
+ATTR_TOOL_ARGS = "llmmas.tool.args"
 ATTR_TOOL_ARGS_SHA256 = "llmmas.tool.args.sha256"
 ATTR_TOOL_RESULT_PREVIEW = "llmmas.tool.result.preview"
+ATTR_TOOL_RESULT = "llmmas.tool.result"
 ATTR_TOOL_RESULT_SHA256 = "llmmas.tool.result.sha256"
 
 # Optional lightweight LLM payload hints
 ATTR_LLM_INPUT_PREVIEW = "llmmas.llm.input.preview"
+ATTR_LLM_INPUT = "llmmas.llm.input"
 ATTR_LLM_INPUT_SHA256 = "llmmas.llm.input.sha256"
 ATTR_LLM_OUTPUT_PREVIEW = "llmmas.llm.output.preview"
+ATTR_LLM_OUTPUT = "llmmas.llm.output"
 ATTR_LLM_OUTPUT_SHA256 = "llmmas.llm.output.sha256"

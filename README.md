@@ -301,6 +301,18 @@ When fault injection is active, message records can also include fault metadata 
 
 When `trace_visible=False`, the message store can still preserve fault ground truth for offline analysis even though the fault is hidden from spans and events.
 
+### Full payloads in Jaeger (debug only)
+
+By default, spans include **previews** (first 200 characters) and **SHA256** hashes. To also attach full text to OTLP/Jaeger spans, set:
+
+```bash
+export LLMMAS_TRACE_FULL_PAYLOADS=1
+```
+
+Or pass `--trace-full-payloads` to `demos/chatdev-ollama/scripts/run_programdev_dataset_otel.py`.
+
+This adds attributes such as `llmmas.message.body`, `llmmas.llm.input`, and `llmmas.llm.output` where the integration records them. Use only for local debugging — traces can become large and may contain sensitive content.
+
 ## Public API
 
 ### Instrumentation decorators and context managers
