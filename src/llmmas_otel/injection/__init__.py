@@ -34,6 +34,11 @@ from .trace_replay import (
     load_trace_replay_config,
 )
 from .trace_timeline import TimelineEntry, build_timeline, format_timeline, write_timeline
+from .chat_env_fault import (
+    apply_task_prompt_corruption,
+    clear_chat_env_registration,
+    register_chat_env,
+)
 
 __all__ = [
     "HookType",
@@ -82,4 +87,7 @@ __all__ = [
     "build_timeline",
     "format_timeline",
     "write_timeline",
+    "register_chat_env",
+    "clear_chat_env_registration",
+    "apply_task_prompt_corruption",
 ]

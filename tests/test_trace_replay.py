@@ -185,6 +185,46 @@ class SequentialReplayProviderTest(unittest.TestCase):
         self.assertIn('Task: "SHORT TASK ONLY"', out)
         self.assertNotIn("/ and clear", out)
 
+    def test_corrupt_chat_env_at_inject(self) -> None:
+        from llmmas_otel.injection.chat_env_fault import (
+            apply_task_prompt_corruption,
+            clear_chat_env_registration,
+            register_chat_env,
+        )
+        from llmmas_otel.injection.replay_provider import ReplayFaultConfig
+
+        class FakeEnv:
+            def __init__(self) -> None:
+                self.env_dict = {"task_prompt": "FULL TASK WITH / AND = AND CLEAR"}
+
+        fake = FakeEnv()
+        register_chat_env(lambda: fake)
+        try:
+            provider = SequentialReplayProvider.from_jaeger_trace(
+                str(FIXTURE),
+                fault=ReplayFaultConfig(
+                    inject_at_hook_index=2,
+                    fault_type="replace",
+                    replacement_message='Task: "ignored"',
+                    corrupt_chat_env=True,
+                    truncated_task_prompt="SHORT TASK ONLY",
+                    propagate_to_llm=False,
+                    llm_propagate_calls=0,
+                    propagate_to_live_a2a=False,
+                ),
+            )
+            provider.replay_message_body(HookType.A2A_SEND, "live-1")
+            provider.replay_message_body(HookType.A2A_RECEIVE, "live-2")
+            provider.replay_message_body(HookType.A2A_SEND, "INJECTED")
+            self.assertEqual(fake.env_dict["task_prompt"], "SHORT TASK ONLY")
+            self.assertNotIn("/", fake.env_dict["task_prompt"])
+        finally:
+            clear_chat_env_registration()
+
+        self.assertFalse(
+            apply_task_prompt_corruption("x"),
+        )
+
     def test_live_a2a_truncates_task_after_inject(self) -> None:
         from llmmas_otel.injection.replay_provider import ReplayFaultConfig
 

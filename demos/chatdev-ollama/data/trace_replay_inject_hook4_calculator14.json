@@ -1,0 +1,10 @@
+{
+  "mode": "trace_replay",
+  "trace_path": "out/calculator/calculator-14/jaeger-trace.json",
+  "hooks": ["a2a_send", "a2a_receive"],
+  "inject_at_hook": 4,
+  "fault_type": "replace",
+  "replacement_message_file": "trace_replay_hook4_calculator14_replacement.txt",
+  "propagate_to_llm": false,
+  "propagate_to_live_a2a": false
+}

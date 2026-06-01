@@ -29,15 +29,49 @@ class ValidationResult:
         self.checks.append(CheckResult(name=name, passed=passed, message=message))
 
 
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _candidate_project_dirs(path: Path) -> list[Path]:
+    """Build search paths for WareHouse runs (handles common mis-set env vars)."""
+    path = Path(path).expanduser()
+    repo = _repo_root()
+    chatdev_warehouse = repo / "demos" / "chatdev-ollama" / "ChatDev-Ollama" / "WareHouse"
+    name = path.name or str(path).replace("\\", "/").split("/")[-1]
+
+    candidates: list[Path] = [path]
+    if not path.is_absolute():
+        candidates.append(repo / path)
+    # e.g. CALCULATOR_PROJECT_DIR=WareHouse/calculator-14_... (wrong: repo has no WareHouse/)
+    if name.startswith("calculator") or "ProgramDevOrg" in name:
+        candidates.append(chatdev_warehouse / name)
+    return candidates
+
+
 def find_project_root(path: Path) -> Path:
     """Resolve a directory that contains main.py (project root or direct child)."""
-    path = path.resolve()
-    if (path / "main.py").is_file():
-        return path
-    for child in sorted(path.iterdir()):
-        if child.is_dir() and (child / "main.py").is_file():
-            return child
-    raise FileNotFoundError(f"No main.py found under {path}")
+    tried: list[str] = []
+    for candidate in _candidate_project_dirs(path):
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            tried.append(str(candidate))
+            continue
+        tried.append(str(resolved))
+        if (resolved / "main.py").is_file():
+            return resolved
+        if resolved.is_dir():
+            for child in sorted(resolved.iterdir()):
+                if child.is_dir() and (child / "main.py").is_file():
+                    return child
+    raise FileNotFoundError(
+        "No main.py found for calculator validation. Tried:\n  "
+        + "\n  ".join(tried)
+        + "\n\nSet CALCULATOR_PROJECT_DIR to the ChatDev WareHouse run folder, e.g.\n"
+        "  demos\\chatdev-ollama\\ChatDev-Ollama\\WareHouse\\calculator-14_ProgramDevOrg_20260601145603\n"
+        "Or unset it to use the in-repo reference fixture."
+    )
 
 
 def _uses_tkinter(project_dir: Path) -> bool:
@@ -108,7 +142,7 @@ def validate_static(project_dir: Path, result: ValidationResult) -> None:
 
 def validate_project(project_path: Path) -> ValidationResult:
     """
-    Validate a generated CalculatorUI directory: static checks + pytest UI/behavior suite.
+    Validate a generated CalculatorUI directory: static checks + black-box behavior pytest suite.
     """
     import pytest
 
@@ -138,8 +172,8 @@ def validate_project(project_path: Path) -> ValidationResult:
     result.add(
         "pytest_calculator_suite",
         exit_code == 0,
-        "All pytest UI/behavior tests passed"
+        "All pytest behavior tests passed"
         if exit_code == 0
-        else f"pytest failed (exit {exit_code}); run: pytest validators/calculator_ui -q",
+        else f"pytest failed (exit {exit_code}); run: pytest validators/calculator_ui -v",
     )
     return result

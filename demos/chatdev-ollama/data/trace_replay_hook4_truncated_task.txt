@@ -1,0 +1,1 @@
+Build a desktop calculator app in Python using Tkinter only (no external GUI libraries). Provide a runnable entry file main.py with `if __name__ == '__main__':` that starts the app. The UI must include a visible display widget and clickable buttons for digits 0-9, '+', '-', '*'

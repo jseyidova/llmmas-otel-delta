@@ -11,7 +11,7 @@ _REFERENCE = Path(__file__).parent / "fixtures" / "calculator_reference"
 
 
 def test_reference_calculator_pytest_suite():
-    """CI: run full UI/behavior suite on in-repo reference app."""
+    """CI: run behavior suite on in-repo reference app."""
     prev = os.environ.get("CALCULATOR_PROJECT_DIR")
     os.environ.pop("CALCULATOR_PROJECT_DIR", None)
     try:

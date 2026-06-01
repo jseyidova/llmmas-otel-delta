@@ -146,6 +146,31 @@ def _resolve_replacement_message(
     return path.read_text(encoding="utf-8")
 
 
+def _resolve_truncated_task_prompt(
+    source: dict[str, Any],
+    data: dict[str, Any],
+    *,
+    config_dir: Optional[Path] = None,
+) -> Optional[str]:
+    inline = source.get("truncated_task_prompt", data.get("truncated_task_prompt"))
+    if inline is not None:
+        return str(inline).strip()
+
+    rel_file = source.get("truncated_task_prompt_file", data.get("truncated_task_prompt_file"))
+    if not rel_file:
+        return None
+
+    path = Path(str(rel_file))
+    if not path.is_absolute():
+        if config_dir is not None:
+            path = (config_dir / path).resolve()
+        else:
+            path = (Path.cwd() / path).resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"truncated_task_prompt_file not found: {path}")
+    return path.read_text(encoding="utf-8").strip()
+
+
 def _fault_config_from_dict(
     data: dict[str, Any],
     *,
@@ -172,9 +197,8 @@ def _fault_config_from_dict(
         )
     else:
         propagate_to_live_a2a = propagate_to_llm
-    truncated_task_prompt = source.get("truncated_task_prompt", data.get("truncated_task_prompt"))
-    if truncated_task_prompt is not None:
-        truncated_task_prompt = str(truncated_task_prompt)
+    truncated_task_prompt = _resolve_truncated_task_prompt(source, data, config_dir=config_dir)
+    corrupt_chat_env = bool(source.get("corrupt_chat_env", data.get("corrupt_chat_env", False)))
 
     fault = ReplayFaultConfig(
         inject_at_hook_index=inject_at,
@@ -185,6 +209,7 @@ def _fault_config_from_dict(
         llm_propagate_calls=llm_propagate_calls,
         propagate_to_live_a2a=propagate_to_live_a2a,
         truncated_task_prompt=truncated_task_prompt,
+        corrupt_chat_env=corrupt_chat_env,
     )
     fault.validate()
     return fault

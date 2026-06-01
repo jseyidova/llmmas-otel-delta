@@ -159,11 +159,13 @@ class ReplayFaultConfig:
     llm_propagate_calls: int = 1
     propagate_to_live_a2a: bool = True
     truncated_task_prompt: Optional[str] = None
+    # Overwrite registered ChatEnv.env_dict['task_prompt'] at the inject hook.
+    corrupt_chat_env: bool = False
 
     def validate(self) -> None:
         if self.inject_at_hook_index < 0:
             raise ValueError("inject_at_hook_index must be >= 0")
-        if self.fault_type not in ("truncate", "replace"):
+        if self.fault_type not in ("truncate", "replace", "baseline"):
             raise ValueError(f"Unsupported fault_type: {self.fault_type!r}")
         if self.fault_type == "replace" and not self.replacement_message:
             raise ValueError("replacement_message is required when fault_type is 'replace'")
@@ -219,6 +221,24 @@ class SequentialReplayProvider:
         )
         return updated
 
+    def _resolve_truncated_task(self, injected_body: str) -> Optional[str]:
+        if self.fault is None:
+            return None
+        if self.fault.truncated_task_prompt:
+            return self.fault.truncated_task_prompt
+        return extract_truncated_task_prompt(injected_body)
+
+    def _apply_chat_env_corruption(self, injected_body: str) -> None:
+        if self.fault is None or not self.fault.corrupt_chat_env:
+            return
+        task = self._resolve_truncated_task(injected_body)
+        if not task:
+            logger.warning("corrupt_chat_env=true but no truncated task could be resolved")
+            return
+        from .chat_env_fault import apply_task_prompt_corruption
+
+        apply_task_prompt_corruption(task)
+
     def _arm_llm_propagation(self, injected_body: str) -> None:
         if self.fault is None:
             self._llm_propagate_remaining = 0
@@ -232,10 +252,7 @@ class SequentialReplayProvider:
             self._llm_truncated_task = None
             return
 
-        if self.fault.truncated_task_prompt:
-            task = self.fault.truncated_task_prompt
-        else:
-            task = extract_truncated_task_prompt(injected_body)
+        task = self._resolve_truncated_task(injected_body)
         self._llm_truncated_task = task
         self._llm_propagate_remaining = self.fault.llm_propagate_calls if llm_on else 0
         logger.info(
@@ -289,6 +306,8 @@ class SequentialReplayProvider:
         baseline = ""
         if hook_index < len(self.events):
             baseline = self.events[hook_index].message_body
+        if self.fault.fault_type == "baseline":
+            return baseline
         if self.fault.fault_type == "truncate":
             limit = self.fault.truncate_length
             if len(baseline) <= limit:
@@ -345,6 +364,7 @@ class SequentialReplayProvider:
             if apply_mutation is not None:
                 apply_mutation(injected_body)
             self._arm_llm_propagation(injected_body)
+            self._apply_chat_env_corruption(injected_body)
             _record_trace_replay_action("fault_inject")
             logger.info(
                 "trace_replay fault_injected hook_type=%s global_hook_index=%s hook_number=%s "
