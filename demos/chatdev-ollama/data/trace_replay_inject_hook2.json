@@ -1,0 +1,10 @@
+{
+  "mode": "trace_replay",
+  "trace_path": "out/calculator/first-trace-full.json",
+  "hooks": ["a2a_send", "a2a_receive"],
+  "inject_at_hook": 2,
+  "fault_type": "replace",
+  "propagate_to_llm": true,
+  "llm_propagate_calls": 1,
+  "replacement_message": "According to the new user's task and some creative brainstorm ideas listed below: \n\nTask: \"Build a desktop calculator app in Python using Tkinter only (no external GUI libraries). Provide a runnable entry file main.py with `if __name__ == '__main__':` that starts the app. The UI must include a visible display widget and clickable buttons for digits 0-9, '+', '-', '*'"
+}

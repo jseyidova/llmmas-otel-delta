@@ -1,0 +1,6 @@
+[
+  {
+    "project_name": "CalculatorUIVague",
+    "description": "Build a desktop calculator app in Python using Tkinter only (no external GUI libraries). Provide a runnable entry file main.py with `if __name__ == '__main__':` that starts the app. Clicking buttons must update the display and perform calculations. Code must run directly with Python 3.10+ and include all required imports (including `import tkinter as tk`) with no NameError at startup."
+  }
+]

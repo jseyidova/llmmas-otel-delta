@@ -1,0 +1,8 @@
+{
+  "mode": "trace_replay",
+  "trace_path": "out/calculator/first-trace-full.json",
+  "hooks": ["a2a_send", "a2a_receive"],
+  "inject_at_hook": 15,
+  "fault_type": "truncate",
+  "replacement_message": "TRUNCATED MESSAGE BODY HERE"
+}

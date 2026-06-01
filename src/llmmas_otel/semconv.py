@@ -59,6 +59,9 @@ ATTR_MESSAGE_PREVIEW = "llmmas.message.preview"
 ATTR_MESSAGE_BODY = "llmmas.message.body"
 ATTR_MESSAGE_SHA256 = "llmmas.message.sha256"
 
+# Trace replay (replay | fault_inject | live | skipped on A2A spans)
+ATTR_TRACE_REPLAY_ACTION = "llmmas.trace_replay.action"
+
 # Delegation / subtask attributes
 ATTR_DELEGATION_ID = "llmmas.delegation.id"
 ATTR_DELEGATION_FROM_AGENT = "llmmas.delegation.from_agent"

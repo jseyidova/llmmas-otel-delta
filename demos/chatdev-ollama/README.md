@@ -101,6 +101,7 @@ This demo runner lives in the `llmmas-otel` repo under `demos/chatdev-ollama/scr
 ### Option A (simplest): copy the runner into ChatDev and run
 ```bash
 cp ../scripts/run_programdev_dataset_otel.py .
+cp ../scripts/run_naming.py .
 OPENAI_API_KEY=ollama python run_programdev_dataset_otel.py \
   --dataset ../data/programdev_sample3.json \
   --limit 3
@@ -121,6 +122,25 @@ PYTHONPATH=. OPENAI_API_KEY=ollama python ../scripts/run_programdev_dataset_otel
 ## 6) View traces in Jaeger
 
 Open http://localhost:16686 and select service: **`chatdev-programdev`**.
+
+After each task, `run_programdev_dataset_otel.py` **automatically** flushes OTLP spans and saves the latest Jaeger trace to `out/<series>/<run-id>-jaeger-trace.json` (e.g. `out/calculator/calculator-01-jaeger-trace.json` with `--auto-run-id`). Disable with `--no-fetch-jaeger-trace`, or set a fixed path with `--jaeger-trace-out`.
+
+Manual fetch (Jaeger must be running):
+
+```bash
+python ../scripts/fetch_jaeger_trace.py --project CalculatorUI
+```
+
+### Readable hook timeline from Jaeger JSON
+
+Same hook numbers as trace replay (`inject_at_hook`, `live_from_hook_number`):
+
+```powershell
+python ../scripts/jaeger_trace_timeline.py out/calculator/first-trace-full.json
+
+# Markdown file with full messages
+python ../scripts/jaeger_trace_timeline.py out/calculator/first-trace-full.json --format md --full-messages -o out/calculator/first-trace-full.timeline.md
+```
 
 You should see spans like:
 - `llmmas.session`

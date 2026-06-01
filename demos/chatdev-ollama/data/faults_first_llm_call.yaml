@@ -1,0 +1,17 @@
+# Config-driven fault injection (llmmas-otel SpecFaultEngine).
+# Use with run_programdev_dataset_otel.py --faults (omit --trace-replay-config unless you want both).
+#
+# ChatDev per turn: a2a_receive (message enters agent) -> llm_call -> a2a_send.
+# This spec truncates the first a2a_receive in the session (right before the first Ollama call).
+
+faults:
+  - id: FIRST_RECV_TRUNCATE
+    hook: a2a_receive
+    selector: {}
+    action:
+      type: a2a.truncate
+      params:
+        max_chars: 400
+    limits:
+      probability: 1.0
+      max_times: 1

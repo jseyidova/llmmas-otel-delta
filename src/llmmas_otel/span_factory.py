@@ -169,6 +169,17 @@ def _annotate_fault_on_span(span: Span, decision: Optional[object]) -> None:
     )
 
 
+def _annotate_trace_replay_on_span(span: Span) -> None:
+    try:
+        from .injection.trace_replay import consume_trace_replay_action
+
+        action = consume_trace_replay_action()
+        if action:
+            span.set_attribute(semconv.ATTR_TRACE_REPLAY_ACTION, action)
+    except Exception:
+        pass
+
+
 class SpanFactory:
     def __init__(self, tracer_name: str = "llmmas-otel") -> None:
         self._tracer = trace.get_tracer(tracer_name)
@@ -393,6 +404,20 @@ class SpanFactory:
                 if apply_mutation is not None and effective_body is not None:
                     apply_mutation(effective_body)
 
+        try:
+            from .injection.trace_replay import apply_trace_replay_to_message_body
+            from .injection.types import HookType as _ReplayHookType
+
+            effective_body = apply_trace_replay_to_message_body(
+                _ReplayHookType.A2A_SEND,
+                effective_body,
+                source_agent_id=source_agent_id,
+                target_agent_id=target_agent_id,
+                apply_mutation=apply_mutation,
+            )
+        except Exception:
+            pass
+
         span_name = f"{semconv.A2A_OP_SEND} {edge_id}"
         with self._tracer.start_as_current_span(span_name, kind=SpanKind.PRODUCER) as span:
             span.set_attribute(semconv.ATTR_SOURCE_AGENT_ID, source_agent_id)
@@ -406,6 +431,7 @@ class SpanFactory:
             _set_metadata(span, metadata, "llmmas.message.meta")
 
             _annotate_fault_on_span(span, decision)
+            _annotate_trace_replay_on_span(span)
 
             if propagate_context and carrier is not None:
                 propagate.inject(carrier)
@@ -483,6 +509,7 @@ class SpanFactory:
         link_from_carrier: bool = True,
         preview_chars: int = 200,
         add_event: bool = True,
+        apply_mutation: Optional[Callable[[str], None]] = None,
         route_via: Optional[str] = None,
         message_kind: Optional[str] = None,
         parent_message_id: Optional[str] = None,
@@ -533,6 +560,20 @@ class SpanFactory:
                     raise ValueError("Fault injection MUTATE requires message_body (string)")
                 effective_body = decision.mutated_payload
 
+        try:
+            from .injection.trace_replay import apply_trace_replay_to_message_body
+            from .injection.types import HookType as _ReplayHookType
+
+            effective_body = apply_trace_replay_to_message_body(
+                _ReplayHookType.A2A_RECEIVE,
+                effective_body,
+                source_agent_id=source_agent_id,
+                target_agent_id=target_agent_id,
+                apply_mutation=apply_mutation,
+            )
+        except Exception:
+            pass
+
         token = _CURRENT_A2A_RECEIVE_DECISION.set(decision)
 
         span_name = f"{semconv.A2A_OP_PROCESS} {edge_id}"
@@ -553,6 +594,7 @@ class SpanFactory:
                 _set_metadata(span, metadata, "llmmas.message.meta")
 
                 _annotate_fault_on_span(span, decision)
+                _annotate_trace_replay_on_span(span)
 
                 if effective_body is not None:
                     preview = effective_body[:preview_chars]

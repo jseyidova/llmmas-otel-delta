@@ -1,0 +1,145 @@
+from __future__ import annotations
+
+import ast
+import os
+import py_compile
+import re
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+
+
+@dataclass
+class CheckResult:
+    name: str
+    passed: bool
+    message: str
+
+
+@dataclass
+class ValidationResult:
+    project_dir: Path
+    checks: list[CheckResult] = field(default_factory=list)
+
+    @property
+    def passed(self) -> bool:
+        return all(c.passed for c in self.checks)
+
+    def add(self, name: str, passed: bool, message: str) -> None:
+        self.checks.append(CheckResult(name=name, passed=passed, message=message))
+
+
+def find_project_root(path: Path) -> Path:
+    """Resolve a directory that contains main.py (project root or direct child)."""
+    path = path.resolve()
+    if (path / "main.py").is_file():
+        return path
+    for child in sorted(path.iterdir()):
+        if child.is_dir() and (child / "main.py").is_file():
+            return child
+    raise FileNotFoundError(f"No main.py found under {path}")
+
+
+def _uses_tkinter(project_dir: Path) -> bool:
+    pattern = re.compile(r"\b(import\s+tkinter|from\s+tkinter\s+import)\b")
+    for py_file in project_dir.rglob("*.py"):
+        if py_file.name.startswith("."):
+            continue
+        try:
+            text = py_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if pattern.search(text):
+            return True
+    return False
+
+
+def _main_has_dunder_main(project_dir: Path) -> bool:
+    main_path = project_dir / "main.py"
+    text = main_path.read_text(encoding="utf-8", errors="replace")
+    return "if __name__" in text and "__main__" in text
+
+
+def _compile_all(project_dir: Path) -> list[str]:
+    errors: list[str] = []
+    for py_file in project_dir.rglob("*.py"):
+        try:
+            py_compile.compile(str(py_file), doraise=True)
+        except py_compile.PyCompileError as exc:
+            errors.append(f"{py_file.relative_to(project_dir)}: {exc.msg}")
+    return errors
+
+
+def validate_static(project_dir: Path, result: ValidationResult) -> None:
+    main_path = project_dir / "main.py"
+    result.add("main_py_exists", main_path.is_file(), f"Expected {main_path}")
+
+    if not main_path.is_file():
+        return
+
+    if sys.version_info < (3, 10):
+        result.add("python_version", False, f"Python 3.10+ required, got {sys.version}")
+    else:
+        result.add("python_version", True, f"Python {sys.version_info.major}.{sys.version_info.minor}")
+
+    compile_errors = _compile_all(project_dir)
+    result.add(
+        "python_syntax",
+        not compile_errors,
+        "All .py files compile" if not compile_errors else "; ".join(compile_errors[:5]),
+    )
+
+    uses_tk = _uses_tkinter(project_dir)
+    result.add("uses_tkinter", uses_tk, "Found tkinter import in project" if uses_tk else "No tkinter import found")
+
+    has_main_guard = _main_has_dunder_main(project_dir)
+    result.add(
+        "main_guard",
+        has_main_guard,
+        "main.py contains if __name__ == '__main__'" if has_main_guard else "Missing __main__ guard in main.py",
+    )
+
+    try:
+        ast.parse(main_path.read_text(encoding="utf-8"))
+        result.add("main_ast_parse", True, "main.py parses as valid Python")
+    except SyntaxError as exc:
+        result.add("main_ast_parse", False, str(exc))
+
+
+def validate_project(project_path: Path) -> ValidationResult:
+    """
+    Validate a generated CalculatorUI directory: static checks + pytest UI/behavior suite.
+    """
+    import pytest
+
+    result = ValidationResult(project_dir=project_path)
+    try:
+        project_dir = find_project_root(project_path)
+        result.project_dir = project_dir
+    except FileNotFoundError as exc:
+        result.add("project_layout", False, str(exc))
+        return result
+
+    result.add("project_layout", True, f"Using project root {project_dir}")
+    validate_static(project_dir, result)
+
+    prev = os.environ.get("CALCULATOR_PROJECT_DIR")
+    os.environ["CALCULATOR_PROJECT_DIR"] = str(project_dir)
+    try:
+        exit_code = pytest.main(
+            [str(Path(__file__).parent), "-q", "--tb=line"],
+        )
+    finally:
+        if prev is None:
+            os.environ.pop("CALCULATOR_PROJECT_DIR", None)
+        else:
+            os.environ["CALCULATOR_PROJECT_DIR"] = prev
+
+    result.add(
+        "pytest_calculator_suite",
+        exit_code == 0,
+        "All pytest UI/behavior tests passed"
+        if exit_code == 0
+        else f"pytest failed (exit {exit_code}); run: pytest validators/calculator_ui -q",
+    )
+    return result

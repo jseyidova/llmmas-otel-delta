@@ -1,0 +1,6 @@
+{
+  "mode": "trace_replay",
+  "trace_path": "out/calculator/first-trace-full.json",
+  "hooks": ["a2a_send", "a2a_receive"],
+  "live_from_hook_number": 4
+}

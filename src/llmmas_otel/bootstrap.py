@@ -31,3 +31,10 @@ def init_otlp_tracing(
 
     exporter = OTLPSpanExporter(endpoint=endpoint, insecure=insecure)
     provider.add_span_processor(BatchSpanProcessor(exporter))
+
+
+def force_flush_traces(*, timeout_millis: int = 30_000) -> None:
+    """Export buffered OTLP spans before querying Jaeger."""
+    provider = trace.get_tracer_provider()
+    if hasattr(provider, "force_flush"):
+        provider.force_flush(timeout_millis=timeout_millis)

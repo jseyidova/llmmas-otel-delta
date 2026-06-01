@@ -1,0 +1,68 @@
+{
+  "data": [
+    {
+      "traceID": "abc123",
+      "spans": [
+        {
+          "traceID": "abc123",
+          "spanID": "seg1",
+          "operationName": "llmmas.workflow.segment Coding",
+          "startTime": 100,
+          "duration": 1000,
+          "tags": [
+            {"key": "llmmas.segment.name", "type": "string", "value": "Coding"}
+          ]
+        },
+        {
+          "traceID": "abc123",
+          "spanID": "recv1",
+          "operationName": "process Planner->Coder",
+          "references": [{"refType": "CHILD_OF", "traceID": "abc123", "spanID": "seg1"}],
+          "startTime": 300,
+          "duration": 10,
+          "tags": [
+            {"key": "llmmas.source_agent.id", "type": "string", "value": "Planner"},
+            {"key": "llmmas.target_agent.id", "type": "string", "value": "Coder"},
+            {"key": "llmmas.message.body", "type": "string", "value": "RECEIVE_BODY_1"}
+          ]
+        },
+        {
+          "traceID": "abc123",
+          "spanID": "send1",
+          "operationName": "send Planner->Coder",
+          "startTime": 200,
+          "duration": 10,
+          "tags": [
+            {"key": "llmmas.source_agent.id", "type": "string", "value": "Planner"},
+            {"key": "llmmas.target_agent.id", "type": "string", "value": "Coder"},
+            {"key": "llmmas.message.body", "type": "string", "value": "SEND_BODY_1"}
+          ]
+        },
+        {
+          "traceID": "abc123",
+          "spanID": "send2",
+          "operationName": "send Coder->Tester",
+          "startTime": 500,
+          "duration": 10,
+          "tags": [
+            {"key": "llmmas.source_agent.id", "type": "string", "value": "Coder"},
+            {"key": "llmmas.target_agent.id", "type": "string", "value": "Tester"},
+            {"key": "llmmas.message.body", "type": "string", "value": "SEND_BODY_2"}
+          ]
+        },
+        {
+          "traceID": "abc123",
+          "spanID": "recv2",
+          "operationName": "process Coder->Tester",
+          "startTime": 600,
+          "duration": 10,
+          "tags": [
+            {"key": "llmmas.source_agent.id", "type": "string", "value": "Coder"},
+            {"key": "llmmas.target_agent.id", "type": "string", "value": "Tester"},
+            {"key": "llmmas.message.preview", "type": "string", "value": "RECEIVE_BODY_2"}
+          ]
+        }
+      ]
+    }
+  ]
+}

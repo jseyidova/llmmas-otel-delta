@@ -24,6 +24,12 @@ from .message_store import disable_message_store, enable_message_store
 from .injection.api import disable as disable_fault_injection
 from .injection.api import enable as enable_fault_injection
 from .injection.api import enabled as fault_injection_enabled
+from .injection.trace_replay import (
+    disable_trace_replay,
+    enable_trace_replay,
+    is_trace_replay_enabled,
+    load_trace_replay_config,
+)
 
 __all__ = [
     "observe_session",
@@ -49,4 +55,8 @@ __all__ = [
     "enable_fault_injection",
     "disable_fault_injection",
     "fault_injection_enabled",
+    "enable_trace_replay",
+    "disable_trace_replay",
+    "is_trace_replay_enabled",
+    "load_trace_replay_config",
 ]
