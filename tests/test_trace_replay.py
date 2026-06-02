@@ -225,6 +225,29 @@ class SequentialReplayProviderTest(unittest.TestCase):
             apply_task_prompt_corruption("x"),
         )
 
+    def test_inject_message_file_alias(self) -> None:
+        from llmmas_otel.injection.trace_replay import load_trace_replay_config
+
+        with tempfile.TemporaryDirectory() as td:
+            cfg_dir = Path(td)
+            (cfg_dir / "msg.txt").write_text("INJECTED CONTEXT", encoding="utf-8")
+            cfg_path = cfg_dir / "cfg.json"
+            cfg_path.write_text(
+                json.dumps(
+                    {
+                        "mode": "trace_replay",
+                        "trace_path": str(FIXTURE),
+                        "inject_at_hook": 2,
+                        "injection_type": "replace",
+                        "inject_message_file": "msg.txt",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            cfg = load_trace_replay_config(cfg_path)
+            assert cfg.fault is not None
+            self.assertEqual(cfg.fault.replacement_message, "INJECTED CONTEXT")
+
     def test_live_a2a_truncates_task_after_inject(self) -> None:
         from llmmas_otel.injection.replay_provider import ReplayFaultConfig
 

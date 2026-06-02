@@ -12,3 +12,6 @@ out_hook*.txt
 
 # Demo run artifacts (per-run dirs live under ChatDev-Ollama/out/)
 demos/chatdev-ollama/**/out/
+
+# Local presentation prep (not for repo)
+docs/PRESENTATION_CONTEXT_stage_review.md

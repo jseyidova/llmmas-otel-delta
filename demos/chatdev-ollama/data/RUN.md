@@ -23,7 +23,39 @@ Each run auto-allocates **calculator-01**, **calculator-02**, … (default on):
 
 Disable with `--no-auto-run-id` (uses `CalculatorUI` from dataset).
 
-# Trace replay only (no fault): calculator-17 baseline, replay hooks 1–5, live from hook 6
+# Trace replay only (full baseline): calculator-17, every hook in jaeger-trace.json (no live_from, no fault)
+# After the trace runs out of A2A events, later hooks use live ChatDev messages automatically.
+python run_programdev_dataset_otel.py `
+  --dataset ..\data\calculator.json `
+  --limit 1 `
+  --trace-replay-config ..\data\trace_replay_calculator17_full.json `
+  --trace-full-payloads `
+  --fetch-jaeger-trace `
+  --ollama-timeout-seconds 3600 `
+  --task-timeout-seconds 3600
+
+# Trace replay + message injection: calculator-17, replay hooks 1–5, inject extra context at hook 6, live from hook 7
+python run_programdev_dataset_otel.py `
+  --dataset ..\data\calculator.json `
+  --limit 1 `
+  --trace-replay-config ..\data\trace_replay_inject_hook6_calculator17.json `
+  --trace-full-payloads `
+  --fetch-jaeger-trace `
+  --ollama-timeout-seconds 3600 `
+  --task-timeout-seconds 3600
+
+# Trace replay only (partial): calculator-17, replay hooks 1–6, live from hook 7
+# live_from_hook_number: 7 = first *live* hook is #7 (hooks 1..6 replayed from jaeger-trace.json)
+python run_programdev_dataset_otel.py `
+  --dataset ..\data\calculator.json `
+  --limit 1 `
+  --trace-replay-config ..\data\trace_replay_calculator17_until_hook6.json `
+  --trace-full-payloads `
+  --fetch-jaeger-trace `
+  --ollama-timeout-seconds 3600 `
+  --task-timeout-seconds 3600
+
+# Trace replay only (partial): calculator-17, replay hooks 1–5, live from hook 6
 # live_from_hook_number: 6 = first *live* hook is #6 (hooks 1..5 replayed from jaeger-trace.json)
 python run_programdev_dataset_otel.py `
   --dataset ..\data\calculator.json `

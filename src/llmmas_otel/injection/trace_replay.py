@@ -56,7 +56,7 @@ class TraceReplayConfig:
                 and self.live_from_hook_index != self.fault.inject_at_hook_index + 1
             ):
                 raise ValueError(
-                    "When fault injection is configured, live_from_hook_index must be unset or equal to "
+                    "When message injection is configured, live_from_hook_index must be unset or equal to "
                     "inject_at_hook_index + 1 (live resumes after the injected hook)"
                 )
 
@@ -95,9 +95,17 @@ def _resolve_live_from_hook_index(data: dict[str, Any]) -> Optional[int]:
     return None
 
 
+def _injection_block(data: dict[str, Any]) -> Optional[dict[str, Any]]:
+    for key in ("message_injection", "fault_injection"):
+        nested = data.get(key)
+        if isinstance(nested, dict):
+            return nested
+    return None
+
+
 def _resolve_inject_at_hook_index(data: dict[str, Any]) -> Optional[int]:
     """
-    0-based global hook index where a fault is injected (1-based: inject_at_hook / inject_at_hook_number).
+    0-based global hook index where a message is injected (1-based: inject_at_hook / inject_at_hook_number).
     """
     if "inject_at_hook_number" in data:
         number = int(data["inject_at_hook_number"])
@@ -114,24 +122,28 @@ def _resolve_inject_at_hook_index(data: dict[str, Any]) -> Optional[int]:
     if "inject_at_hook_index" in data:
         return int(data["inject_at_hook_index"])
 
-    nested = data.get("fault_injection")
-    if isinstance(nested, dict):
+    nested = _injection_block(data)
+    if nested is not None:
         return _resolve_inject_at_hook_index(nested)
 
     return None
 
 
-def _resolve_replacement_message(
+def _resolve_inject_message(
     source: dict[str, Any],
     data: dict[str, Any],
     *,
     config_dir: Optional[Path] = None,
 ) -> Optional[str]:
-    replacement = source.get("replacement_message", data.get("replacement_message"))
-    if replacement is not None:
-        return str(replacement)
+    """Inline or file-backed message body substituted at inject_at_hook."""
+    for key in ("inject_message", "replacement_message"):
+        inline = source.get(key, data.get(key))
+        if inline is not None:
+            return str(inline)
 
-    rel_file = source.get("replacement_message_file", data.get("replacement_message_file"))
+    rel_file = source.get("inject_message_file", data.get("inject_message_file"))
+    if not rel_file:
+        rel_file = source.get("replacement_message_file", data.get("replacement_message_file"))
     if not rel_file:
         return None
 
@@ -142,7 +154,7 @@ def _resolve_replacement_message(
         else:
             path = (Path.cwd() / path).resolve()
     if not path.is_file():
-        raise FileNotFoundError(f"replacement_message_file not found: {path}")
+        raise FileNotFoundError(f"inject_message_file not found: {path}")
     return path.read_text(encoding="utf-8")
 
 
@@ -176,8 +188,8 @@ def _fault_config_from_dict(
     *,
     config_dir: Optional[Path] = None,
 ) -> Optional[ReplayFaultConfig]:
-    nested = data.get("fault_injection")
-    source: dict[str, Any] = dict(nested) if isinstance(nested, dict) else dict(data)
+    nested = _injection_block(data)
+    source: dict[str, Any] = dict(nested) if nested is not None else dict(data)
 
     inject_at = _resolve_inject_at_hook_index(source)
     if inject_at is None:
@@ -185,8 +197,12 @@ def _fault_config_from_dict(
     if inject_at is None:
         return None
 
-    fault_type = str(source.get("fault_type", data.get("fault_type", "truncate"))).strip() or "truncate"
-    replacement = _resolve_replacement_message(source, data, config_dir=config_dir)
+    injection_type = source.get("injection_type", data.get("injection_type"))
+    fault_type = source.get("fault_type", data.get("fault_type", injection_type))
+    if fault_type is None:
+        fault_type = "replace" if _resolve_inject_message(source, data, config_dir=config_dir) else "truncate"
+    fault_type = str(fault_type).strip() or "truncate"
+    replacement = _resolve_inject_message(source, data, config_dir=config_dir)
 
     truncate_length = int(source.get("truncate_length", data.get("truncate_length", 80)))
     propagate_to_llm = bool(source.get("propagate_to_llm", data.get("propagate_to_llm", True)))
@@ -283,8 +299,8 @@ def enable_trace_replay(config: TraceReplayConfig | dict[str, Any] | str | Path)
     if config.fault is not None:
         inject_at = config.fault.inject_at_hook_index
         logger.info(
-            "trace_replay enabled trace_path=%s baseline_hooks=%s fault_injection "
-            "inject_at_hook_index=%s inject_at_hook_number=%s fault_type=%s "
+            "trace_replay enabled trace_path=%s baseline_hooks=%s message_injection "
+            "inject_at_hook_index=%s inject_at_hook_number=%s injection_type=%s "
             "(replay hooks 1..%s, inject at hook %s, live from hook %s)",
             config.trace_path,
             config.hooks,

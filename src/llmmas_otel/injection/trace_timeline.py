@@ -44,7 +44,7 @@ class TimelineEntry:
     operation: str
     message: str
     message_source: str  # body | preview | log
-    replay_action: Optional[str] = None  # replay | fault_inject | live | skipped
+    replay_action: Optional[str] = None  # replay | inject | live | skipped
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -163,7 +163,7 @@ def format_timeline_markdown(
     lines.append(f"**{len(entries)} hooks** — numbering matches `inject_at_hook` / `live_from_hook_number` in replay config.")
     lines.append("")
     lines.append(
-        "Replay column (`replay` / `fault_inject` / `live` / `skipped`) comes from span tag "
+        "Replay column (`replay` / `inject` / `live` / `skipped`) comes from span tag "
         "`llmmas.trace_replay.action` on new runs. Hooks 3+ after inject are **live**, not baseline replay."
     )
     lines.append("")

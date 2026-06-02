@@ -334,7 +334,7 @@ class SequentialReplayProvider:
         live_from = self._effective_live_from_hook_index()
 
         if live_from is not None and hook_index >= live_from:
-            reason = "after_fault_injection" if self.fault is not None else "live_mode"
+            reason = "after_message_injection" if self.fault is not None else "live_mode"
             live_body = self._apply_live_a2a_truncation(current_body)
             _record_trace_replay_action("live")
             logger.info(
@@ -365,10 +365,10 @@ class SequentialReplayProvider:
                 apply_mutation(injected_body)
             self._arm_llm_propagation(injected_body)
             self._apply_chat_env_corruption(injected_body)
-            _record_trace_replay_action("fault_inject")
+            _record_trace_replay_action("inject")
             logger.info(
-                "trace_replay fault_injected hook_type=%s global_hook_index=%s hook_number=%s "
-                "fault_type=%s applied=true sender=%s receiver=%s baseline_preview=%s injected_preview=%s",
+                "trace_replay message_injected hook_type=%s global_hook_index=%s hook_number=%s "
+                "injection_type=%s applied=true sender=%s receiver=%s baseline_preview=%s injected_preview=%s",
                 hook_key,
                 hook_index,
                 hook_number,

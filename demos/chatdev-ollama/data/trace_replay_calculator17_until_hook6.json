@@ -1,0 +1,6 @@
+{
+  "mode": "trace_replay",
+  "trace_path": "out/calculator/calculator-17/jaeger-trace.json",
+  "hooks": ["a2a_send", "a2a_receive"],
+  "live_from_hook_number": 7
+}
